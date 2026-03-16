@@ -2766,6 +2766,12 @@ Future<void> onActiveWindowChanged() async {
   print(
       "[MultiWindowHandler] active window changed: ${rustDeskWinManager.getActiveWindows()}");
   if (rustDeskWinManager.getActiveWindows().isEmpty) {
+    // Main desktop app should stay alive in tray when the main window is closed.
+    // Only auxiliary modes (e.g. connection-manager) should fully exit when no
+    // active windows remain.
+    if (desktopType == DesktopType.main) {
+      return;
+    }
     // close all sub windows
     try {
       if (isLinux) {

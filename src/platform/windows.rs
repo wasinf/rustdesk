@@ -512,14 +512,19 @@ fn service_main(arguments: Vec<OsString>) {
 }
 
 pub fn start_os_service() {
-    if let Err(e) =
-        windows_service::service_dispatcher::start(crate::get_app_name(), ffi_service_main)
+    if let Err(e) = windows_service::service_dispatcher::start(self_service_name(), ffi_service_main)
     {
         log::error!("start_service failed: {}", e);
     }
 }
 
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
+const ECO_SERVICE_NAME: &str = "EcoRemoto";
+
+#[inline]
+fn self_service_name() -> &'static str {
+    ECO_SERVICE_NAME
+}
 
 extern "C" {
     fn get_current_session(rdp: BOOL) -> DWORD;
@@ -604,6 +609,11 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
 
     // Tell the system that the service is running now
     status_handle.set_service_status(next_status)?;
+
+    // Keep SaaS heartbeat alive from the service process itself.
+    // This avoids false offline when --server child cannot be launched
+    // due to transient Windows session/token issues.
+    crate::eco_heartbeat::start();
 
     let mut session_id = unsafe { get_current_session(share_rdp()) };
     log::info!("session id {}", session_id);
@@ -1320,7 +1330,19 @@ fn get_install_info_with_subkey(subkey: String) -> (String, String, String, Stri
         "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\{}",
         crate::get_app_name()
     );
-    let exe = format!("{}\\{}.exe", path, crate::get_app_name());
+    let preferred_exe_name = "eco-remoto.exe";
+    let fallback_exe_name = format!("{}.exe", crate::get_app_name());
+    let exe_name = if PathBuf::from(&path).join(preferred_exe_name).exists() {
+        preferred_exe_name.to_owned()
+    } else if let Ok(cur_exe) = std::env::current_exe() {
+        cur_exe
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or(fallback_exe_name)
+    } else {
+        fallback_exe_name
+    };
+    let exe = format!("{}\\{}", path, exe_name);
     (subkey, path, start_menu, exe)
 }
 
@@ -1654,6 +1676,7 @@ pub fn run_before_uninstall() -> ResultType<()> {
 
 fn get_before_uninstall(kill_self: bool) -> String {
     let app_name = crate::get_app_name();
+    let service_name = self_service_name();
     let ext = app_name.to_lowercase();
     let filter = if kill_self {
         "".to_string()
@@ -1663,8 +1686,8 @@ fn get_before_uninstall(kill_self: bool) -> String {
     format!(
         "
     chcp 65001
-    sc stop {app_name}
-    sc delete {app_name}
+    sc stop \"{service_name}\"
+    sc delete \"{service_name}\"
     taskkill /F /IM {broker_exe}
     taskkill /F /IM {app_name}.exe{filter}
     reg delete HKEY_CLASSES_ROOT\\.{ext} /f
@@ -1672,6 +1695,7 @@ fn get_before_uninstall(kill_self: bool) -> String {
     netsh advfirewall firewall delete rule name=\"{app_name} Service\"
     ",
         broker_exe = WIN_TOPMOST_INJECTED_PROCESS_EXE,
+        service_name = service_name,
     )
 }
 
@@ -2923,18 +2947,20 @@ impl Drop for WakeLock {
 
 pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
     log::info!("Uninstalling service...");
+    let service_name = self_service_name();
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
     Config::set_option("stop-service".into(), "Y".into());
     let cmds = format!(
         "
     chcp 65001
-    sc stop {app_name}
-    sc delete {app_name}
+    sc stop \"{service_name}\"
+    sc delete \"{service_name}\"
     if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\" del /f /q \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\"
     taskkill /F /IM {broker_exe}
     taskkill /F /IM {app_name}.exe{filter}
     ",
         app_name = crate::get_app_name(),
+        service_name = service_name,
         broker_exe = WIN_TOPMOST_INJECTED_PROCESS_EXE,
     );
     if let Err(err) = run_cmds(cmds, false, "uninstall") {
@@ -3128,8 +3154,9 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
     };
 
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
+    let service_name = self_service_name();
     let restore_service_cmd = if is_service_running {
-        format!("sc start {}", &app_name)
+        format!("sc start \"{}\"", service_name)
     } else {
         "".to_owned()
     };
@@ -3161,7 +3188,7 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
     let cmds = format!(
         "
 chcp 65001
-sc stop {app_name}
+sc stop \"{service_name}\"
 taskkill /F /IM {app_name}.exe{filter}
 {reg_cmd}
 {copy_exe}
@@ -3173,6 +3200,7 @@ taskkill /F /IM {app_name}.exe{filter}
 {sleep}
     ",
         app_name = app_name,
+        service_name = service_name,
         copy_exe = copy_exe_cmd(&src_exe, &exe, &path)?,
         rename_exe = rename_exe_cmd(&src_exe, &path)?,
         remove_meta_toml = remove_meta_toml_cmd(is_msi.unwrap_or(true), &path),
@@ -3445,15 +3473,17 @@ fn get_import_config(exe: &str) -> String {
     if config::is_outgoing_only() {
         return "".to_string();
     }
+    let service_name = self_service_name();
     format!("
-sc stop {app_name}
-sc delete {app_name}
-sc create {app_name} binpath= \"\\\"{exe}\\\" --import-config \\\"{config_path}\\\"\" start= auto DisplayName= \"{app_name} Service\"
-sc start {app_name}
-sc stop {app_name}
-sc delete {app_name}
+sc stop \"{service_name}\"
+sc delete \"{service_name}\"
+sc create \"{service_name}\" binpath= \"\\\"{exe}\\\" --import-config \\\"{config_path}\\\"\" start= auto DisplayName= \"{app_name} Service\"
+sc start \"{service_name}\"
+sc stop \"{service_name}\"
+sc delete \"{service_name}\"
 ",
     app_name = crate::get_app_name(),
+    service_name = service_name,
     config_path=Config::file().to_str().unwrap_or(""),
 )
 }
@@ -3462,6 +3492,7 @@ fn get_create_service(exe: &str) -> String {
     if config::is_outgoing_only() {
         return "".to_string();
     }
+    let service_name = self_service_name();
     let stop = Config::get_option("stop-service") == "Y";
     if stop {
         format!("
@@ -3469,10 +3500,11 @@ if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{ap
 ", app_name = crate::get_app_name())
     } else {
         format!("
-sc create {app_name} binpath= \"\\\"{exe}\\\" --service\" start= auto DisplayName= \"{app_name} Service\"
-sc start {app_name}
+sc create \"{service_name}\" binpath= \"\\\"{exe}\\\" --service\" start= auto DisplayName= \"{app_name} Service\"
+sc start \"{service_name}\"
 ",
-    app_name = crate::get_app_name())
+    app_name = crate::get_app_name(),
+    service_name = service_name)
     }
 }
 
@@ -3486,7 +3518,10 @@ fn run_after_run_cmds(silent: bool) {
             .spawn());
     }
     if Config::get_option("stop-service") != "Y" {
-        allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
+        // Avoid duplicate tray icon when service already launched one.
+        if !is_self_service_running() {
+            allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
+        }
     }
     std::thread::sleep(std::time::Duration::from_millis(300));
 }
@@ -3681,13 +3716,114 @@ fn get_uninstall_amyuni_idd() -> String {
 
 #[inline]
 pub fn is_self_service_running() -> bool {
-    is_service_running(&crate::get_app_name())
+    is_service_running(self_service_name())
 }
 
 pub fn is_service_running(service_name: &str) -> bool {
     unsafe {
         let service_name = wide_string(service_name);
         is_service_running_w(service_name.as_ptr() as _)
+    }
+}
+
+fn is_service_registered(service_name: &str) -> bool {
+    let cmd = format!("sc query \"{}\"", service_name);
+    match std::process::Command::new("cmd")
+        .args(["/c", &cmd])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        Ok(out) => out.status.success(),
+        Err(err) => {
+            log::warn!("failed to query service registration: {}", err);
+            false
+        }
+    }
+}
+
+#[inline]
+pub fn try_start_service_if_needed() {
+    if config::is_outgoing_only() || !is_installed() || is_self_service_running() {
+        return;
+    }
+    let service_name = self_service_name();
+    if !is_service_registered(service_name) {
+        log::warn!(
+            "service '{}' is missing; attempting automatic reinstall",
+            service_name
+        );
+        match is_elevated(None) {
+            Ok(true) => {
+                if let Ok(exe) = std::env::current_exe() {
+                    match std::process::Command::new(exe)
+                        .arg("--install-service")
+                        .creation_flags(CREATE_NO_WINDOW)
+                        .spawn()
+                    {
+                        Ok(_) => log::info!("spawned --install-service for self-heal"),
+                        Err(err) => log::warn!("failed to spawn --install-service: {}", err),
+                    }
+                }
+            }
+            Ok(false) => {
+                if let Err(err) = elevate("--install-service") {
+                    log::warn!("failed to request elevation for install-service: {}", err);
+                } else {
+                    log::info!("requested elevation for automatic install-service");
+                }
+            }
+            Err(err) => log::warn!("failed to check elevation status: {}", err),
+        }
+        return;
+    }
+    // Self-heal stale flag states that leave the service stopped unexpectedly.
+    if Config::get_option("stop-service") == "Y" {
+        log::warn!("stop-service=Y while service is down, clearing flag for self-heal");
+        Config::set_option("stop-service".into(), "".into());
+    }
+    let cmd = format!("sc start \"{}\"", service_name);
+    match std::process::Command::new("cmd")
+        .args(["/c", &cmd])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        Ok(out) => {
+            if out.status.success() {
+                log::info!("service start requested successfully");
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                log::warn!("failed to start service automatically: {}", stderr.trim());
+                match is_elevated(None) {
+                    Ok(false) => {
+                        if let Err(err) = elevate("--install-service") {
+                            log::warn!(
+                                "failed to request elevation after start failure: {}",
+                                err
+                            );
+                        } else {
+                            log::info!(
+                                "requested elevation for install-service after start failure"
+                            );
+                        }
+                    }
+                    Ok(true) => {
+                        if let Ok(exe) = std::env::current_exe() {
+                            if let Err(err) = std::process::Command::new(exe)
+                                .arg("--install-service")
+                                .creation_flags(CREATE_NO_WINDOW)
+                                .spawn()
+                            {
+                                log::warn!("failed to spawn --install-service: {}", err);
+                            }
+                        }
+                    }
+                    Err(err) => log::warn!("failed to check elevation status: {}", err),
+                }
+            }
+        }
+        Err(err) => {
+            log::warn!("failed to execute service start command: {}", err);
+        }
     }
 }
 

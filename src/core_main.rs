@@ -83,12 +83,10 @@ pub fn core_main() -> Option<Vec<String>> {
     if args.is_empty() {
         #[cfg(target_os = "linux")]
         let should_check_start_tray = crate::check_process("--server", false);
-        // We can use `crate::check_process("--server", false)` on Windows.
-        // Because `--server` process is the System user's process. We can't get the arguments in `check_process()`.
-        // We can assume that self service running means the server is also running on Windows.
+        // On Windows, service is the source of truth for tray when service is running.
+        // UI process starts tray only when service is not running to avoid duplicates.
         #[cfg(target_os = "windows")]
-        let should_check_start_tray = crate::platform::is_self_service_running()
-            && crate::platform::is_cur_exe_the_installed();
+        let should_check_start_tray = !crate::platform::is_self_service_running();
         if should_check_start_tray && !crate::check_process("--tray", true) {
             #[cfg(target_os = "linux")]
             hbb_common::allow_err!(crate::platform::check_autostart_config());
@@ -190,6 +188,16 @@ pub fn core_main() -> Option<Vec<String>> {
         {
             crate::platform::try_remove_temp_update_files();
             hbb_common::config::PeerConfig::preload_peers();
+            crate::platform::try_start_service_if_needed();
+            // For installed Windows builds, heartbeat source of truth is the service process.
+            // Start heartbeat in UI only when running portable / without installed service.
+            if !crate::platform::is_installed() && !crate::platform::is_self_service_running() {
+                crate::eco_heartbeat::start();
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            crate::eco_heartbeat::start();
         }
         std::thread::spawn(move || crate::start_server(false, no_server));
     } else {

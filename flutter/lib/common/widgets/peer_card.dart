@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -131,6 +133,56 @@ class _PeerCardState extends State<_PeerCard>
     return peerTabShowNote(widget.tab) && peer.note.isNotEmpty;
   }
 
+  String _peerStatusLabel(Peer peer) {
+    return peer.online ? translate('Online') : translate('Offline');
+  }
+
+  Color _peerStatusColor(Peer peer) {
+    return peer.online
+        ? const Color.fromARGB(255, 46, 179, 113)
+        : const Color.fromARGB(255, 224, 99, 99);
+  }
+
+  ImageProvider? _peerPreviewProvider(Peer peer) {
+    final preview = peer.preview.trim();
+    if (preview.isEmpty) return null;
+
+    if (preview.startsWith('data:image/')) {
+      final comma = preview.indexOf(',');
+      if (comma > 0) {
+        try {
+          return MemoryImage(base64Decode(preview.substring(comma + 1)));
+        } catch (_) {
+          return null;
+        }
+      }
+    }
+
+    if (preview.startsWith('http://') || preview.startsWith('https://')) {
+      return NetworkImage(preview);
+    }
+
+    try {
+      return MemoryImage(base64Decode(base64.normalize(preview)));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Widget _buildPeerPreview(Peer peer) {
+    final fallbackColor = str2color('${peer.id}${peer.platform}', 0x7f);
+    final imageProvider = _peerPreviewProvider(peer);
+    if (imageProvider == null) {
+      return ColoredBox(color: fallbackColor);
+    }
+    return Image(
+      image: imageProvider,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.low,
+      errorBuilder: (_, __, ___) => ColoredBox(color: fallbackColor),
+    );
+  }
+
   makeChild(bool isPortrait, Peer peer) {
     final name = hideUsernameOnCard == true
         ? peer.hostname
@@ -190,6 +242,15 @@ class _PeerCardState extends State<_PeerCard>
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleSmall,
                         )),
+                        const SizedBox(width: 6),
+                        Text(
+                          _peerStatusLabel(peer),
+                          style: TextStyle(
+                            fontSize: isPortrait ? 10 : 9,
+                            color: _peerStatusColor(peer),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        )
                       ]).marginOnly(top: isPortrait ? 0 : 2),
                       Row(
                         children: [
@@ -302,60 +363,78 @@ class _PeerCardState extends State<_PeerCard>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Expanded(
-                  child: Container(
-                    color: str2color('${peer.id}${peer.platform}', 0x7f),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                child:
-                                    getPlatformImage(peer.platform, size: 60),
-                              ),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Tooltip(
-                                      message: name,
-                                      waitDuration: const Duration(seconds: 1),
-                                      child: Text(
-                                        name,
-                                        style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 12),
-                                        textAlign: TextAlign.center,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (_showNote(peer))
+                  child: Stack(
+                    children: [
+                      Positioned.fill(child: _buildPeerPreview(peer)),
+                      const Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Color(0x33000000),
+                                Color(0x66000000),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  child: getPlatformImage(peer.platform,
+                                      size: 44),
+                                ),
                                 Row(
                                   children: [
                                     Expanded(
-                                        child: Tooltip(
-                                      message: peer.note,
-                                      waitDuration: const Duration(seconds: 1),
-                                      child: Text(
-                                        peer.note,
-                                        style: const TextStyle(
-                                            color: Colors.white38,
-                                            fontSize: 10),
-                                        textAlign: TextAlign.center,
-                                        overflow: TextOverflow.ellipsis,
+                                      child: Tooltip(
+                                        message: name,
+                                        waitDuration:
+                                            const Duration(seconds: 1),
+                                        child: Text(
+                                          name,
+                                          style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11),
+                                          textAlign: TextAlign.center,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
-                                    ))
+                                    ),
                                   ],
                                 ),
-                            ],
-                          ).paddingOnly(top: 4.0, left: 4.0, right: 4.0),
-                        ),
-                      ],
-                    ),
+                                if (_showNote(peer))
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                          child: Tooltip(
+                                        message: peer.note,
+                                        waitDuration:
+                                            const Duration(seconds: 1),
+                                        child: Text(
+                                          peer.note,
+                                          style: const TextStyle(
+                                              color: Colors.white38,
+                                              fontSize: 10),
+                                          textAlign: TextAlign.center,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ))
+                                    ],
+                                  ),
+                              ],
+                            ).paddingOnly(top: 4.0, left: 4.0, right: 4.0),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
                 Container(
@@ -372,6 +451,15 @@ class _PeerCardState extends State<_PeerCard>
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleSmall,
                         )),
+                        const SizedBox(width: 6),
+                        Text(
+                          _peerStatusLabel(peer),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: _peerStatusColor(peer),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        )
                       ]).paddingSymmetric(vertical: 8)),
                       checkBoxOrActionMoreLandscape(peer, isTile: false),
                     ],

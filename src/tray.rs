@@ -8,8 +8,27 @@ use std::sync::{Arc, Mutex};
 #[cfg(windows)]
 use std::time::Duration;
 
+fn should_hide_tray_icon() -> bool {
+    let hidden =
+        crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY)
+            == "Y";
+    #[cfg(windows)]
+    {
+        // ECO Windows client must always keep tray visible so users can
+        // reopen the app after closing the main window.
+        if hidden {
+            log::warn!("Ignoring built-in hide-tray=Y on Windows");
+        }
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        hidden
+    }
+}
+
 pub fn start_tray() {
-    if crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY) == "Y" {
+    if should_hide_tray_icon() {
         #[cfg(not(target_os = "macos"))]
         {
             return;
@@ -37,7 +56,9 @@ fn make_tray() -> hbb_common::ResultType<()> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        icon = include_bytes!("../res/tray-icon.ico");
+        // Use icon.ico as default tray icon source on Windows/Linux builds.
+        // Some customized environments may not ship tray-icon.ico.
+        icon = include_bytes!("../res/icon.ico");
     }
 
     let (icon_rgba, icon_width, icon_height) = {
@@ -125,7 +146,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
         if let tao::event::Event::NewEvents(tao::event::StartCause::Init) = event {
             // for fixing https://github.com/rustdesk/rustdesk/discussions/10210#discussioncomment-14600745
             // so we start tray, but not to show it
-            if crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY) == "Y" {
+            if should_hide_tray_icon() {
                 return;
             }
             // We create the icon once the event loop is actually running

@@ -21,6 +21,7 @@ class Peer {
   String loginName; //login username
   String device_group_name;
   String note;
+  String preview;
   bool? sameServer;
 
   String getId() {
@@ -45,6 +46,11 @@ class Peer {
         loginName = json['loginName'] ?? '',
         device_group_name = json['device_group_name'] ?? '',
         note = json['note'] is String ? json['note'] : '',
+        preview = (json['preview'] ??
+                json['wallpaper'] ??
+                json['thumbnail'] ??
+                '')
+            .toString(),
         sameServer = json['same_server'];
 
   Map<String, dynamic> toJson() {
@@ -63,6 +69,7 @@ class Peer {
       'loginName': loginName,
       'device_group_name': device_group_name,
       'note': note,
+      'preview': preview,
       'same_server': sameServer,
     };
   }
@@ -108,6 +115,7 @@ class Peer {
     required this.loginName,
     required this.device_group_name,
     required this.note,
+    required this.preview,
     this.sameServer,
   });
 
@@ -127,6 +135,7 @@ class Peer {
           loginName: '',
           device_group_name: '',
           note: '',
+          preview: '',
         );
   bool equal(Peer other) {
     return id == other.id &&
@@ -142,7 +151,8 @@ class Peer {
         rdpUsername == other.rdpUsername &&
         device_group_name == other.device_group_name &&
         loginName == other.loginName &&
-        note == other.note;
+        note == other.note &&
+        preview == other.preview;
   }
 
   Peer.copy(Peer other)
@@ -161,6 +171,7 @@ class Peer {
             loginName: other.loginName,
             device_group_name: other.device_group_name,
             note: other.note,
+            preview: other.preview,
             sameServer: other.sameServer);
 }
 

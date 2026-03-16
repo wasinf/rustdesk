@@ -230,6 +230,17 @@ class _PeersViewState extends State<_PeersView>
 
   Widget _buildPeersView(Peers peers) {
     final updateEvent = peers.event;
+    final screenWidth = MediaQuery.of(context).size.width;
+    double gridCardWidth = 220;
+    if (screenWidth >= 1800) {
+      gridCardWidth = 178;
+    } else if (screenWidth >= 1500) {
+      gridCardWidth = 192;
+    } else if (screenWidth >= 1200) {
+      gridCardWidth = 205;
+    }
+    const double gridCardHeight = 132;
+
     final body = ObxValue<RxList>((filters) {
       return FutureBuilder<List<Peer>>(
         builder: (context, snapshot) {
@@ -254,7 +265,9 @@ class _PeersViewState extends State<_PeersView>
                       ? Container(height: 45, child: visibilityChild)
                       : peerCardUiType.value == PeerUiType.grid
                           ? SizedBox(
-                              width: 220, height: 140, child: visibilityChild)
+                              width: gridCardWidth,
+                              height: gridCardHeight,
+                              child: visibilityChild)
                           : SizedBox(
                               width: 220, height: 42, child: visibilityChild))
                   : Container(child: visibilityChild);

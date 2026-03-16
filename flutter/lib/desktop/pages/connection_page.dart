@@ -375,6 +375,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                         loginName: '',
                         device_group_name: '',
                         note: '',
+                        preview: '',
                       );
                       _autocompleteOpts = [emptyPeer];
                     } else {

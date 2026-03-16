@@ -162,6 +162,39 @@ fn generate_bindings(
     fs::copy(ffi_rs, exact_file).ok(); // ignore failure
 }
 
+fn struct_is_opaque(bindings: &str, struct_name: &str) -> bool {
+    let marker = format!("pub struct {struct_name} {{");
+    let Some(start) = bindings.find(&marker) else {
+        return false;
+    };
+    let tail = &bindings[start..];
+    let Some(end) = tail.find("}\n") else {
+        return tail.contains("pub _address: u8");
+    };
+    tail[..end].contains("pub _address: u8")
+}
+
+fn validate_generated_bindings(ffi_rs: &Path, generated: &str) {
+    let Ok(bindings) = fs::read_to_string(ffi_rs) else {
+        return;
+    };
+    let check = match generated {
+        "vpx_ffi.rs" => vec!["vpx_codec_enc_cfg", "vpx_codec_dec_cfg"],
+        "aom_ffi.rs" => vec!["aom_codec_enc_cfg", "aom_codec_dec_cfg"],
+        _ => vec![],
+    };
+    for name in check {
+        if struct_is_opaque(&bindings, name) {
+            panic!(
+                "bindgen generated opaque struct `{name}` in {}. \
+This usually means an incompatible libclang was picked. \
+Please use LLVM/clang 16-18 (or Visual Studio LLVM) and rebuild.",
+                ffi_rs.display()
+            );
+        }
+    }
+}
+
 fn gen_vcpkg_package(package: &str, ffi_header: &str, generated: &str, regex: &str) {
     let includes = find_package(package);
     let src_dir = env::var_os("CARGO_MANIFEST_DIR").unwrap();
@@ -178,6 +211,7 @@ fn gen_vcpkg_package(package: &str, ffi_header: &str, generated: &str, regex: &s
     let ffi_rs = out_dir.join(generated);
     let exact_file = src_dir.join("generated").join(generated);
     generate_bindings(&ffi_header, &includes, &ffi_rs, &exact_file, regex);
+    validate_generated_bindings(&ffi_rs, generated);
 }
 
 // If you have problems installing ffmpeg, you can download $VCPKG_ROOT/installed from ci

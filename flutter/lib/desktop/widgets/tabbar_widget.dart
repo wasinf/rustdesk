@@ -237,6 +237,7 @@ int _lastClickTime = 0;
 class DesktopTab extends StatefulWidget {
   final bool showLogo;
   final bool showTitle;
+  final String? titleText;
   final bool showMinimize;
   final bool showMaximize;
   final bool showClose;
@@ -263,6 +264,7 @@ class DesktopTab extends StatefulWidget {
     required this.controller,
     this.showLogo = true,
     this.showTitle = false,
+    this.titleText,
     this.showMinimize = true,
     this.showMaximize = true,
     this.showClose = true,
@@ -297,6 +299,7 @@ class _DesktopTabState extends State<DesktopTab>
 
   bool get showLogo => widget.showLogo;
   bool get showTitle => widget.showTitle;
+  String? get titleText => widget.titleText;
   bool get showMinimize => widget.showMinimize;
   bool get showMaximize => widget.showMaximize;
   bool get showClose => widget.showClose;
@@ -639,8 +642,10 @@ class _DesktopTabState extends State<DesktopTab>
                         ),
                         Offstage(
                             offstage: !showTitle,
-                            child: const Text(
-                              "RustDesk",
+                            child: Text(
+                              (titleText != null && titleText!.trim().isNotEmpty)
+                                  ? titleText!
+                                  : bind.mainGetAppNameSync(),
                               style: TextStyle(fontSize: 13),
                             ).marginOnly(left: 2))
                       ]).marginOnly(

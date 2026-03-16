@@ -587,6 +587,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
     });
 
     if is_server {
+        crate::eco_heartbeat::start();
         crate::common::set_server_running(true);
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {
