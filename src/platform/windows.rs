@@ -1410,7 +1410,32 @@ fn get_after_install(
     reg_value_printer: Option<String>,
 ) -> String {
     let app_name = crate::get_app_name();
-    let ext = app_name.to_lowercase();
+    let ext = crate::get_uri_scheme();
+    let mut protocol_aliases = vec![
+        ext.clone(),
+        "rustdesk".to_owned(),
+        "ecoremoto".to_owned(),
+        "eco-remoto".to_owned(),
+    ];
+    protocol_aliases.sort();
+    protocol_aliases.dedup();
+
+    let protocol_registers = protocol_aliases
+        .iter()
+        .map(|scheme| {
+            format!(
+                "
+    reg add HKEY_CLASSES_ROOT\\{scheme} /f
+    reg add HKEY_CLASSES_ROOT\\{scheme} /f /v \"URL Protocol\" /t REG_SZ /d \"\"
+    reg add HKEY_CLASSES_ROOT\\{scheme}\\shell /f
+    reg add HKEY_CLASSES_ROOT\\{scheme}\\shell\\open /f
+    reg add HKEY_CLASSES_ROOT\\{scheme}\\shell\\open\\command /f
+    reg add HKEY_CLASSES_ROOT\\{scheme}\\shell\\open\\command /f /ve /t REG_SZ /d \"\\\"{exe}\\\" \\\"%%1\\\"\"
+                "
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     // reg delete HKEY_CURRENT_USER\Software\Classes for
     // https://github.com/rustdesk/rustdesk/commit/f4bdfb6936ae4804fc8ab1cf560db192622ad01a
@@ -1451,12 +1476,7 @@ fn get_after_install(
     reg add HKEY_CLASSES_ROOT\\.{ext}\\shell\\open /f
     reg add HKEY_CLASSES_ROOT\\.{ext}\\shell\\open\\command /f
     reg add HKEY_CLASSES_ROOT\\.{ext}\\shell\\open\\command /f /ve /t REG_SZ /d \"\\\"{exe}\\\" --play \\\"%%1\\\"\"
-    reg add HKEY_CLASSES_ROOT\\{ext} /f
-    reg add HKEY_CLASSES_ROOT\\{ext} /f /v \"URL Protocol\" /t REG_SZ /d \"\"
-    reg add HKEY_CLASSES_ROOT\\{ext}\\shell /f
-    reg add HKEY_CLASSES_ROOT\\{ext}\\shell\\open /f
-    reg add HKEY_CLASSES_ROOT\\{ext}\\shell\\open\\command /f
-    reg add HKEY_CLASSES_ROOT\\{ext}\\shell\\open\\command /f /ve /t REG_SZ /d \"\\\"{exe}\\\" \\\"%%1\\\"\"
+    {protocol_registers}
     netsh advfirewall firewall add rule name=\"{app_name} Service\" dir=out action=allow program=\"{exe}\" enable=yes
     netsh advfirewall firewall add rule name=\"{app_name} Service\" dir=in action=allow program=\"{exe}\" enable=yes
     {create_service}
@@ -2075,6 +2095,7 @@ pub fn bootstrap() -> bool {
     if let Ok(lic) = get_license_from_exe_name() {
         *config::EXE_RENDEZVOUS_SERVER.write().unwrap() = lic.host.clone();
     }
+    ensure_user_protocol_handlers();
 
     #[cfg(debug_assertions)]
     {
@@ -2088,6 +2109,74 @@ pub fn bootstrap() -> bool {
             set_safe_load_dll()
         } else {
             true
+        }
+    }
+}
+
+fn ensure_user_protocol_handlers() {
+    let exe = match std::env::current_exe() {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(err) => {
+            log::warn!("protocol self-heal skipped: failed to resolve current exe: {}", err);
+            return;
+        }
+    };
+
+    let mut schemes = vec![
+        crate::get_uri_scheme(),
+        "eco-remote".to_owned(),
+        "ecoremoto".to_owned(),
+        "eco-remoto".to_owned(),
+        "rustdesk".to_owned(),
+    ];
+    schemes.sort();
+    schemes.dedup();
+
+    let command = format!("\"{}\" \"%1\"", exe);
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (classes, _) = match hkcu.create_subkey("Software\\Classes") {
+        Ok(res) => res,
+        Err(err) => {
+            log::warn!("protocol self-heal skipped: cannot open HKCU\\\\Software\\\\Classes: {}", err);
+            return;
+        }
+    };
+
+    for scheme in schemes {
+        let (scheme_key, _) = match classes.create_subkey(&scheme) {
+            Ok(res) => res,
+            Err(err) => {
+                log::warn!("protocol self-heal: cannot create key {}: {}", scheme, err);
+                continue;
+            }
+        };
+
+        if let Err(err) = scheme_key.set_value("URL Protocol", &"") {
+            log::warn!(
+                "protocol self-heal: cannot set URL Protocol value for {}: {}",
+                scheme,
+                err
+            );
+        }
+
+        let (cmd_key, _) = match scheme_key.create_subkey("shell\\open\\command") {
+            Ok(res) => res,
+            Err(err) => {
+                log::warn!(
+                    "protocol self-heal: cannot create command key for {}: {}",
+                    scheme,
+                    err
+                );
+                continue;
+            }
+        };
+
+        if let Err(err) = cmd_key.set_value("", &command) {
+            log::warn!(
+                "protocol self-heal: cannot set command for {}: {}",
+                scheme,
+                err
+            );
         }
     }
 }

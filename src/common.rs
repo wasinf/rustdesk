@@ -1012,7 +1012,42 @@ pub fn is_rustdesk() -> bool {
 
 #[inline]
 pub fn get_uri_prefix() -> String {
-    format!("{}://", get_app_name().to_lowercase())
+    format!("{}://", get_uri_scheme())
+}
+
+#[inline]
+pub fn get_uri_scheme() -> String {
+    let raw = get_app_name().to_lowercase();
+    let mut scheme = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect::<String>();
+    if scheme.is_empty() {
+        scheme = "rustdesk".to_owned();
+    }
+    scheme
+}
+
+#[inline]
+pub fn get_uri_prefixes() -> Vec<String> {
+    let mut prefixes = vec![
+        get_uri_prefix(),
+        "rustdesk://".to_owned(),
+        "eco-remote://".to_owned(),
+        "ecoremoto://".to_owned(),
+        "eco-remoto://".to_owned(),
+    ];
+    prefixes.sort();
+    prefixes.dedup();
+    prefixes
+}
+
+#[inline]
+pub fn has_known_uri_prefix(arg: &str) -> bool {
+    let lower = arg.to_lowercase();
+    get_uri_prefixes()
+        .into_iter()
+        .any(|prefix| lower.starts_with(&prefix))
 }
 
 #[cfg(target_os = "macos")]
@@ -1955,11 +1990,12 @@ pub fn read_custom_client(config: &str) {
 
 #[inline]
 pub fn is_empty_uni_link(arg: &str) -> bool {
-    let prefix = crate::get_uri_prefix();
-    if !arg.starts_with(&prefix) {
-        return false;
+    for prefix in crate::get_uri_prefixes() {
+        if arg.starts_with(&prefix) {
+            return arg[prefix.len()..].chars().all(|c| c == '/');
+        }
     }
-    arg[prefix.len()..].chars().all(|c| c == '/')
+    false
 }
 
 pub fn get_hwid() -> Bytes {

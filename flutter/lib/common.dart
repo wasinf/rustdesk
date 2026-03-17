@@ -2213,7 +2213,7 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   if (cmdArgs != null && cmdArgs.isNotEmpty) {
     args = cmdArgs;
     // rustdesk <uri link>
-    if (args[0].startsWith(bind.mainUriPrefixSync())) {
+    if (hasKnownUriPrefix(args[0])) {
       final uri = Uri.tryParse(args[0]);
       if (uri != null) {
         args = urlLinkToCmdArgs(uri);
@@ -2341,6 +2341,24 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   }
 
   return false;
+}
+
+bool hasKnownUriPrefix(String raw) {
+  final normalized = raw.trim().toLowerCase();
+  if (normalized.isEmpty) {
+    return false;
+  }
+
+  final prefixes = <String>{
+    bind.mainUriPrefixSync().toLowerCase(),
+    "eco-remote://",
+    "eco-remoto://",
+    "ecoremoto://",
+    "rustdesk://",
+  };
+
+  return prefixes.any((prefix) =>
+      prefix.isNotEmpty && normalized.startsWith(prefix));
 }
 
 List<String>? urlLinkToCmdArgs(Uri uri) {
