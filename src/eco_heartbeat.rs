@@ -99,7 +99,9 @@ pub fn start() {
                     "alias": alias,
                     "os": os,
                     "ip": if ip.is_empty() { None::<String> } else { Some(ip) },
+                    "version": crate::VERSION,
                     "client_version": crate::VERSION,
+                    "timestamp": hbb_common::get_time(),
                 });
 
                 let mut sent = false;
