@@ -1,0 +1,93 @@
+diff --git a/app/schemas.py b/app/schemas.py
+index 1111111..2222222 100644
+--- a/app/schemas.py
++++ b/app/schemas.py
+@@ -1,6 +1,10 @@
++import time
++from typing import Optional
++
+ from pydantic import BaseModel
+ 
+ 
+ class HeartbeatIn(BaseModel):
+     client_id: str
++    hostname: Optional[str] = ""
++    username: Optional[str] = ""
++    alias: Optional[str] = ""
++    os: Optional[str] = ""
++    ip: Optional[str] = ""
++    version: Optional[str] = None
++    client_version: Optional[str] = None
++    timestamp: Optional[int] = None
++
++    def normalized_version(self) -> str:
++        version = (self.version or "").strip()
++        legacy = (self.client_version or "").strip()
++        if version:
++            return version
++        if legacy:
++            return legacy
++        raise ValueError("version or client_version is required")
++
++    def normalized_timestamp(self) -> int:
++        return int(self.timestamp or int(time.time()))
+diff --git a/app/main.py b/app/main.py
+index 3333333..4444444 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -1,6 +1,8 @@
++import os
++import time
+ import logging
+ from fastapi import FastAPI, Header, HTTPException
+ from app.schemas import HeartbeatIn
+ 
+ logger = logging.getLogger("painel.api")
+@@ -15,12 +17,45 @@ app = FastAPI()
+ 
+ @app.post("/api/heartbeat")
+ def heartbeat(payload: HeartbeatIn, x_api_key: str | None = Header(default=None, alias="x-api-key")):
+-    # existing auth check
+-    if x_api_key != "<CURRENT_KEY>":
++    expected_key = os.getenv("ECO_PANEL_API_KEY", "").strip()
++    accepted_keys = {expected_key} if expected_key else set()
++    for k in os.getenv("ECO_PANEL_API_KEYS", "").split(","):
++        k = k.strip()
++        if k:
++            accepted_keys.add(k)
++
++    if not x_api_key:
++        logger.warning("heartbeat rejected: missing x-api-key")
++        raise HTTPException(status_code=401, detail="missing api key")
++    if x_api_key not in accepted_keys:
++        suffix = x_api_key[-4:] if len(x_api_key) >= 4 else "***"
++        logger.warning("heartbeat rejected: invalid x-api-key suffix=%s", suffix)
+         raise HTTPException(status_code=401, detail="invalid api key")
+ 
+-    # existing persistence logic
++    # compatibility fallback (new + legacy clients)
++    try:
++        version = payload.normalized_version()
++    except ValueError as err:
++        logger.warning("heartbeat rejected: invalid payload client_id=%s err=%s", payload.client_id, err)
++        raise HTTPException(status_code=422, detail=str(err))
++
++    ts = payload.normalized_timestamp()
++
++    # status computation (non-breaking, derived only)
++    now_ts = int(time.time())
++    online_s = int(os.getenv("HEARTBEAT_ONLINE_SECONDS", "60"))
++    delay_s = int(os.getenv("HEARTBEAT_DELAY_SECONDS", "180"))
++    lag = max(0, now_ts - ts)
++    if lag <= online_s:
++        status = "ONLINE"
++    elif lag <= delay_s:
++        status = "DELAY"
++    else:
++        status = "OFFLINE"
++
++    # existing persistence logic (adapt only, no schema break)
++    # save: client_id, hostname, username, alias, os, ip, version, timestamp, status
++
++    logger.info("heartbeat accepted client_id=%s version=%s ts=%s status=%s", payload.client_id, version, ts, status)
+     return {"ok": True}

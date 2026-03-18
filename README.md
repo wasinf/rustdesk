@@ -8,6 +8,23 @@
   <b>We need your help to translate this README, <a href="https://github.com/rustdesk/rustdesk/tree/master/src/lang">RustDesk UI</a> and <a href="https://github.com/rustdesk/doc.rustdesk.com">RustDesk Doc</a> to your native language</b>
 </p>
 
+## Projeto EcoRemoto
+
+Esta branch/repositório inclui automações e scripts de empacotamento do **EcoRemoto**, uma personalização baseada no RustDesk para distribuição em ambiente Windows.
+
+Arquivos úteis para o fluxo do EcoRemoto:
+
+- `BUILD_ECO_REMOTO_WINDOWS.md`
+- `build-eco.cmd`
+- `build-eco-installer-admin.cmd`
+- `rebuild-deploy-ecoremoto-admin.cmd`
+- `docs/ECO_HEARTBEAT_CONTRACT.md`
+- `docs/PAINEL_HEARTBEAT_API_UPDATE.md`
+- `docs/ECOREMOTO_CLIENT_CONNECTION_IMPROVEMENTS.md`
+- `tools/painelaremoto/heartbeat_reference.py`
+- `tools/painelaremoto/tests/test_heartbeat_contract.py`
+- `tools/painelaremoto/patches/painel_heartbeat_incremental.patch`
+
 > [!Caution]
 > **Misuse Disclaimer:** <br>
 > The developers of RustDesk do not condone or support any unethical or illegal use of this software. Misuse, such as unauthorized access, control or invasion of privacy, is strictly against our guidelines. The authors are not responsible for any misuse of the application.
@@ -179,4 +196,3 @@ Please ensure that you run these commands from the root of the RustDesk reposito
 ![File Transfer](https://github.com/rustdesk/rustdesk/assets/28412477/39511ad3-aa9a-4f8c-8947-1cce286a46ad)
 
 ![TCP Tunneling](https://github.com/rustdesk/rustdesk/assets/28412477/78e8708f-e87e-4570-8373-1360033ea6c5)
-

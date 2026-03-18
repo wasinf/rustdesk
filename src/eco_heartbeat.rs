@@ -1,6 +1,10 @@
+use std::sync::Once;
 use std::thread;
 use std::time::{Duration, Instant};
-use std::sync::Once;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 use hbb_common::config::Config;
 use hbb_common::log::{self, warn};
@@ -9,13 +13,17 @@ use serde_json::json;
 use crate::hbbs_http::create_http_client_with_url;
 
 const DEFAULT_ECO_PANEL_URL: &str = "https://painelaremoto.portalecomdo.com.br/api/heartbeat";
-const DEFAULT_ECO_PANEL_API_KEY: &str = "2c034d3a8afc44481492d155afc167dd2962f6cd6e5c0bac24bae8d8df035e25";
+const DEFAULT_ECO_PANEL_API_KEY: &str =
+    "2c034d3a8afc44481492d155afc167dd2962f6cd6e5c0bac24bae8d8df035e25";
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 const HEARTBEAT_REQUEST_TIMEOUT_SECS: u64 = 10;
 const HEARTBEAT_RETRY_DELAY_SECS: u64 = 2;
 const HEARTBEAT_MAX_ATTEMPTS: u8 = 2;
+const HEARTBEAT_INTERVAL_JITTER_MAX_SECS: u64 = 5;
 const MISSING_CONFIG_WARN_INTERVAL_SECS: u64 = 300;
 const EMPTY_ID_WARN_INTERVAL_SECS: u64 = 300;
+const SERVICE_INACTIVE_WARN_INTERVAL_SECS: u64 = 300;
+const HEARTBEAT_SUCCESS_LOG_INTERVAL_SECS: u64 = 600;
 
 fn get_option_or_default(key: &str, default: &str) -> String {
     let v = Config::get_option(key);
@@ -37,6 +45,15 @@ fn should_log_periodic(last: &mut Option<Instant>, interval_secs: u64) -> bool {
     }
 }
 
+fn compute_stable_jitter_secs(client_id: &str, jitter_max_secs: u64) -> u64 {
+    if jitter_max_secs == 0 || client_id.is_empty() {
+        return 0;
+    }
+    let mut hasher = DefaultHasher::new();
+    client_id.hash(&mut hasher);
+    hasher.finish() % (jitter_max_secs + 1)
+}
+
 pub fn start() {
     static START_ONCE: Once = Once::new();
     START_ONCE.call_once(|| {
@@ -45,9 +62,28 @@ pub fn start() {
             let mut last_empty_id_warn: Option<Instant> = None;
             let mut client_cache: Option<(String, reqwest::blocking::Client)> = None;
             let mut consecutive_failures: u32 = 0;
+            let mut last_service_inactive_warn: Option<Instant> = None;
+            let mut last_success_log: Option<Instant> = None;
 
             loop {
                 let start = Instant::now();
+
+
+                #[cfg(windows)]
+                {
+                    if crate::platform::is_installed() && !crate::platform::is_self_service_running() {
+                        if should_log_periodic(
+                            &mut last_service_inactive_warn,
+                            SERVICE_INACTIVE_WARN_INTERVAL_SECS,
+                        ) {
+                            warn!(
+                                "eco heartbeat skipped: installed windows client without active EcoRemoto service"
+                            );
+                        }
+                        thread::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
+                        continue;
+                    }
+                }
 
                 let url = get_option_or_default("eco-panel-url", DEFAULT_ECO_PANEL_URL);
                 let api_key =
@@ -71,6 +107,8 @@ pub fn start() {
                     thread::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
                     continue;
                 }
+                let jitter_secs =
+                    compute_stable_jitter_secs(&client_id, HEARTBEAT_INTERVAL_JITTER_MAX_SECS);
 
                 let refresh_client = client_cache
                     .as_ref()
@@ -99,7 +137,10 @@ pub fn start() {
                     "alias": alias,
                     "os": os,
                     "ip": if ip.is_empty() { None::<String> } else { Some(ip) },
+                    "version": crate::VERSION,
+                    // Keep legacy field for backward compatibility with current panel deployments.
                     "client_version": crate::VERSION,
+                    "timestamp": hbb_common::get_time(),
                 });
 
                 let mut sent = false;
@@ -116,6 +157,16 @@ pub fn start() {
                     {
                         Ok(resp) if resp.status().is_success() => {
                             sent = true;
+                            if should_log_periodic(
+                                &mut last_success_log,
+                                HEARTBEAT_SUCCESS_LOG_INTERVAL_SECS,
+                            ) {
+                                log::info!(
+                                    "eco heartbeat sent successfully (attempt {}/{})",
+                                    attempt,
+                                    HEARTBEAT_MAX_ATTEMPTS
+                                );
+                            }
                             if consecutive_failures > 0 {
                                 log::info!(
                                     "eco heartbeat recovered after {} failure(s)",
@@ -154,8 +205,9 @@ pub fn start() {
                 }
 
                 let elapsed = start.elapsed();
-                if elapsed < Duration::from_secs(HEARTBEAT_INTERVAL_SECS) {
-                    thread::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS) - elapsed);
+                let cycle_sleep = Duration::from_secs(HEARTBEAT_INTERVAL_SECS + jitter_secs);
+                if elapsed < cycle_sleep {
+                    thread::sleep(cycle_sleep - elapsed);
                 }
             }
         });
