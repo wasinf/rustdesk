@@ -2374,6 +2374,10 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
     "terminal",
     "terminal-admin",
   ];
+
+  var queryParameters =
+      uri.queryParameters.map((k, v) => MapEntry(k.toLowerCase(), v));
+
   if (uri.authority.isEmpty &&
       uri.path.split('').every((char) => char == '/')) {
     return [];
@@ -2418,14 +2422,36 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
     }
   }
 
-  var queryParameters =
-      uri.queryParameters.map((k, v) => MapEntry(k.toLowerCase(), v));
+  // Accept additional link variants commonly used by web panels:
+  // - eco-remote://connect?id=<id>
+  // - eco-remote://open/<id>
+  // - eco-remote://session/<id>
+  // - eco-remote://?id=<id>
+  if ((command == null || id == null) && uri.authority.isNotEmpty) {
+    final authority = uri.authority.toLowerCase();
+    final path = uri.path;
+    if (["connect", "open", "session", "remote"].contains(authority)) {
+      command = '--connect';
+      if (path.length > 1) {
+        id = path.substring(1);
+      }
+    }
+  }
+
+  if (id == null || id!.trim().isEmpty) {
+    id = queryParameters["id"] ??
+        queryParameters["client_id"] ??
+        queryParameters["remote_id"] ??
+        queryParameters["device_id"];
+  }
+
+  if (command == null && id != null && id!.trim().isNotEmpty) {
+    command = '--connect';
+  }
 
   var key = queryParameters["key"];
-  if (id != null) {
-    if (key != null) {
-      id = "$id?key=$key";
-    }
+  if (id != null && key != null) {
+    id = "$id?key=$key";
   }
 
   if (isMobile && id != null) {
@@ -2442,7 +2468,7 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
     } else if (command == '--terminal') {
       connect(Get.context!, id,
           isTerminal: true, forceRelay: forceRelay, password: password);
-    } else if (command == 'terminal-admin') {
+    } else if (command == '--terminal-admin') {
       setEnvTerminalAdmin();
       connect(Get.context!, id,
           isTerminal: true, forceRelay: forceRelay, password: password);
@@ -2454,7 +2480,7 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
   }
 
   List<String> args = List.empty(growable: true);
-  if (command != null && id != null) {
+  if (command != null && id != null && id!.trim().isNotEmpty) {
     args.add(command);
     args.add(id);
     var param = queryParameters;
