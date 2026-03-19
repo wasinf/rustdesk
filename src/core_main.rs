@@ -285,6 +285,11 @@ pub fn core_main() -> Option<Vec<String>> {
                 }
                 return None;
             } else if args[0] == "--portable-service" {
+                #[cfg(windows)]
+                if crate::platform::is_installed() {
+                    log::info!("Ignoring --portable-service on installed build");
+                    return None;
+                }
                 crate::platform::elevate_or_run_as_system(
                     click_setup,
                     _is_elevate,

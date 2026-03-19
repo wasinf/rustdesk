@@ -713,8 +713,17 @@ impl Connection {
                         }
                         #[cfg(windows)]
                         ipc::Data::DataPortableService(ipc::DataPortableService::RequestStart) => {
-                            if let Err(e) = portable_client::start_portable_service(portable_client::StartPara::Direct) {
-                                log::error!("Failed to start portable service from cm: {:?}", e);
+                            if crate::platform::is_installed() {
+                                log::info!(
+                                    "Ignoring portable service start request on installed build"
+                                );
+                            } else if let Err(e) = portable_client::start_portable_service(
+                                portable_client::StartPara::Direct,
+                            ) {
+                                log::error!(
+                                    "Failed to start portable service from cm: {:?}",
+                                    e
+                                );
                             }
                         }
                         ipc::Data::SwitchSidesBack => {

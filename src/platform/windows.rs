@@ -2452,6 +2452,10 @@ pub fn elevate_or_run_as_system(is_setup: bool, is_elevate: bool, is_run_as_syst
     } else {
         "--run-as-system"
     };
+    if is_installed() && is_run_as_system {
+        log::info!("Ignoring --run-as-system on installed build");
+        return;
+    }
     if is_root() {
         if is_run_as_system {
             log::info!("run portable service");
