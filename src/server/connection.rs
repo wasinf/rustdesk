@@ -713,7 +713,8 @@ impl Connection {
                         }
                         #[cfg(windows)]
                         ipc::Data::DataPortableService(ipc::DataPortableService::RequestStart) => {
-                            if crate::platform::is_installed() {
+                            if crate::common::is_custom_client() || crate::platform::is_installed()
+                            {
                                 log::info!(
                                     "Ignoring portable service start request on installed build"
                                 );

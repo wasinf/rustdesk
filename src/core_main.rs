@@ -136,12 +136,17 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     #[cfg(windows)]
     {
-        _is_quick_support |= !crate::platform::is_installed()
-            && args.is_empty()
-            && (is_quick_support_exe(&arg_exe)
-                || config::LocalConfig::get_option("pre-elevate-service") == "Y"
-                || (!click_setup && crate::platform::is_elevated(None).unwrap_or(false)));
-        crate::portable_service::client::set_quick_support(_is_quick_support);
+        if crate::common::is_custom_client() {
+            _is_quick_support = false;
+            crate::portable_service::client::set_quick_support(false);
+        } else {
+            _is_quick_support |= !crate::platform::is_installed()
+                && args.is_empty()
+                && (is_quick_support_exe(&arg_exe)
+                    || config::LocalConfig::get_option("pre-elevate-service") == "Y"
+                    || (!click_setup && crate::platform::is_elevated(None).unwrap_or(false)));
+            crate::portable_service::client::set_quick_support(_is_quick_support);
+        }
     }
     let mut log_name = "".to_owned();
     if args.len() > 0 && args[0].starts_with("--") {
@@ -164,6 +169,7 @@ pub fn core_main() -> Option<Vec<String>> {
         && _is_quick_support
         && !_is_elevate
         && !_is_run_as_system
+        && !crate::common::is_custom_client()
     {
         use crate::portable_service::client;
         if let Err(e) = client::start_portable_service(client::StartPara::Direct) {
@@ -172,6 +178,10 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     #[cfg(windows)]
     if _is_run_as_system {
+        if crate::common::is_custom_client() {
+            log::info!("Ignoring --run-as-system on custom client");
+            return None;
+        }
         crate::platform::elevate_or_run_as_system(click_setup, _is_elevate, _is_run_as_system);
         return None;
     }
@@ -286,7 +296,7 @@ pub fn core_main() -> Option<Vec<String>> {
                 return None;
             } else if args[0] == "--portable-service" {
                 #[cfg(windows)]
-                if crate::platform::is_installed() {
+                if crate::platform::is_installed() || crate::common::is_custom_client() {
                     log::info!("Ignoring --portable-service on installed build");
                     return None;
                 }
