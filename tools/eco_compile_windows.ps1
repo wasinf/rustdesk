@@ -171,7 +171,6 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 CloseApplications=yes
-ForceCloseApplications=yes
 RestartApplications=no
 SetupIconFile=__SETUP_ICON__
 
