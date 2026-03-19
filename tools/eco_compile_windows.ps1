@@ -77,7 +77,7 @@ function Resolve-InnoSetupCompiler([string]$explicitPath) {
   $cmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
   $candidates = @(
-    "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
     "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
   )
   foreach ($candidate in $candidates) {
@@ -159,7 +159,9 @@ AppId={{9E41D0F1-7D13-45F7-9B8A-2E7A0E3C6D2F}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\RustDesk
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+DefaultDirName={autopf64}\RustDesk
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 OutputDir=__OUTPUT_DIR__
@@ -302,9 +304,21 @@ if (Test-Path $legacyExe) {
 
 Start-Service "EcoRemoto" -ErrorAction SilentlyContinue
 
-# Sobe a UI apos instalar
-Start-Process -FilePath $exe -ArgumentList "--tray" -WorkingDirectory $installDir | Out-Null
-Start-Sleep -Seconds 2
+# Aguarda o servico estabilizar para evitar corrida de inicializacao e icone duplicado no tray.
+$serviceReady = $false
+for ($i = 0; $i -lt 20; $i++) {
+  $svc = Get-Service "EcoRemoto" -ErrorAction SilentlyContinue
+  if ($svc -and $svc.Status -eq "Running") {
+    $serviceReady = $true
+    break
+  }
+  Start-Sleep -Milliseconds 500
+}
+if (-not $serviceReady) {
+  Write-Host "[ECO-INSTALLER] Aviso: servico EcoRemoto ainda nao esta Running, iniciando UI mesmo assim." -ForegroundColor Yellow
+}
+
+# Sobe somente a UI; o tray deve ser gerenciado pelo fluxo do servico para evitar duplicidade.
 Start-Process -FilePath $exe -WorkingDirectory $installDir | Out-Null
 
 Write-Host "[ECO-INSTALLER] Instalacao concluida com sucesso." -ForegroundColor Green

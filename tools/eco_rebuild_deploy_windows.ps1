@@ -85,9 +85,21 @@ New-Service `
 
 Start-Service "EcoRemoto"
 
-# Start tray first, then open main UI.
-Start-Process -FilePath $exe -ArgumentList "--tray" -WorkingDirectory $dst | Out-Null
-Start-Sleep -Seconds 2
+# Wait service readiness to reduce race conditions with tray ownership.
+$serviceReady = $false
+for ($i = 0; $i -lt 20; $i++) {
+  $svc = Get-Service "EcoRemoto" -ErrorAction SilentlyContinue
+  if ($svc -and $svc.Status -eq "Running") {
+    $serviceReady = $true
+    break
+  }
+  Start-Sleep -Milliseconds 500
+}
+if (-not $serviceReady) {
+  Write-Host "[ECO] Warning: EcoRemoto service is not Running yet, launching UI anyway." -ForegroundColor Yellow
+}
+
+# Launch only main UI. Tray should be coordinated by service flow.
 Start-Process -FilePath $exe -WorkingDirectory $dst | Out-Null
 
 Write-Host "[ECO] Validation:" -ForegroundColor Cyan

@@ -520,10 +520,16 @@ pub fn start_os_service() {
 
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 const ECO_SERVICE_NAME: &str = "EcoRemoto";
+const ECO_SERVICE_DISPLAY_NAME: &str = "EcoRemoto";
 
 #[inline]
 fn self_service_name() -> &'static str {
     ECO_SERVICE_NAME
+}
+
+#[inline]
+fn self_service_display_name() -> &'static str {
+    ECO_SERVICE_DISPLAY_NAME
 }
 
 extern "C" {
@@ -589,7 +595,7 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     };
 
     // Register system service event handler
-    let status_handle = service_control_handler::register(crate::get_app_name(), event_handler)?;
+    let status_handle = service_control_handler::register(self_service_name(), event_handler)?;
 
     let next_status = ServiceStatus {
         // Should match the one from system service registry
@@ -3090,7 +3096,8 @@ if exist \"{tray_shortcut}\" del /f /q \"{tray_shortcut}\"
         log::debug!("{err}");
         return true;
     }
-    run_after_run_cmds(false);
+    // Keep install-service non-intrusive: installer flows decide when to open UI.
+    run_after_run_cmds(true);
     std::process::exit(0);
 }
 
@@ -3563,16 +3570,17 @@ fn get_import_config(exe: &str) -> String {
         return "".to_string();
     }
     let service_name = self_service_name();
+    let service_display_name = self_service_display_name();
     format!("
 sc stop \"{service_name}\"
 sc delete \"{service_name}\"
-sc create \"{service_name}\" binpath= \"\\\"{exe}\\\" --import-config \\\"{config_path}\\\"\" start= auto DisplayName= \"{app_name} Service\"
+sc create \"{service_name}\" binpath= \"\\\"{exe}\\\" --import-config \\\"{config_path}\\\"\" start= auto DisplayName= \"{service_display_name}\"
 sc start \"{service_name}\"
 sc stop \"{service_name}\"
 sc delete \"{service_name}\"
 ",
-    app_name = crate::get_app_name(),
     service_name = service_name,
+    service_display_name = service_display_name,
     config_path=Config::file().to_str().unwrap_or(""),
 )
 }
@@ -3582,6 +3590,7 @@ fn get_create_service(exe: &str) -> String {
         return "".to_string();
     }
     let service_name = self_service_name();
+    let service_display_name = self_service_display_name();
     let stop = Config::get_option("stop-service") == "Y";
     if stop {
         format!("
@@ -3589,11 +3598,11 @@ if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{ap
 ", app_name = crate::get_app_name())
     } else {
         format!("
-sc create \"{service_name}\" binpath= \"\\\"{exe}\\\" --service\" start= auto DisplayName= \"{app_name} Service\"
+sc create \"{service_name}\" binpath= \"\\\"{exe}\\\" --service\" start= auto DisplayName= \"{service_display_name}\"
 sc start \"{service_name}\"
 ",
-    app_name = crate::get_app_name(),
-    service_name = service_name)
+    service_name = service_name,
+    service_display_name = service_display_name)
     }
 }
 
@@ -3607,8 +3616,8 @@ fn run_after_run_cmds(silent: bool) {
             .spawn());
     }
     if Config::get_option("stop-service") != "Y" {
-        // Avoid duplicate tray icon when service already launched one.
-        if !is_self_service_running() {
+        // Ensure tray is present, but still avoid duplicates.
+        if !crate::check_process("--tray", true) {
             allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
         }
     }

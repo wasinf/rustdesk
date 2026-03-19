@@ -35,7 +35,11 @@ class OnlineStatusWidget extends StatefulWidget {
 class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   final _svcStopped = Get.find<RxBool>(tag: 'stop-service');
   final _svcIsUsingPublicServer = true.obs;
+  final _appVersion = ''.obs;
+  final _startingService = false.obs;
   Timer? _updateTimer;
+  bool _serviceBootstrapAttempted = false;
+  bool _serviceBootstrapInFlight = false;
 
   double get em => 14.0;
   double? get height => bind.isIncomingOnly() ? null : em * 3;
@@ -52,6 +56,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   @override
   void initState() {
     super.initState();
+    _loadVersion();
     _updateTimer = periodic_immediate(Duration(seconds: 1), () async {
       updateStatus();
     });
@@ -109,6 +114,21 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
           ),
         );
 
+    versionWidget() => Obx(() {
+          final version = _appVersion.value.trim();
+          if (version.isEmpty) {
+            return const SizedBox.shrink();
+          }
+          return Text(
+            '${translate('Version')} $version',
+            style: TextStyle(
+              fontSize: em,
+              color: Colors.redAccent,
+              fontWeight: FontWeight.w600,
+            ),
+          );
+        });
+
     basicWidget() => Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -134,6 +154,8 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
             // ready && public
             // No need to show the guide if is custom client.
             if (!isIncomingOnly) setupServerWidget(),
+            if (!isIncomingOnly) const Spacer(),
+            if (!isIncomingOnly) versionWidget().marginOnly(right: em),
           ],
         );
 
@@ -158,6 +180,8 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     return Text(
       _svcStopped.value
           ? translate("Service is not running")
+          : _startingService.value
+              ? '${translate("Start service")}...'
           : stateGlobal.svcStatus.value == SvcStatus.connecting
               ? translate("connecting_status")
               : stateGlobal.svcStatus.value == SvcStatus.notReady
@@ -165,6 +189,34 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
                   : translate('Ready'),
       style: TextStyle(fontSize: em),
     );
+  }
+
+  _loadVersion() async {
+    try {
+      _appVersion.value = await bind.mainGetVersion();
+    } catch (_) {}
+  }
+
+  Future<void> _tryBootstrapService(int statusNum) async {
+    if (!isWindows ||
+        !bind.mainIsInstalled() ||
+        _svcStopped.value ||
+        statusNum == 1 ||
+        _serviceBootstrapAttempted ||
+        _serviceBootstrapInFlight) {
+      return;
+    }
+    _serviceBootstrapAttempted = true;
+    _serviceBootstrapInFlight = true;
+    _startingService.value = true;
+    try {
+      await start_service(true);
+    } catch (_) {
+      // Keep silent here; user can still start manually via UI if needed.
+    } finally {
+      _serviceBootstrapInFlight = false;
+      _startingService.value = false;
+    }
   }
 
   updateStatus() async {
@@ -181,6 +233,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
       stateGlobal.svcStatus.value = SvcStatus.notReady;
     }
     _svcIsUsingPublicServer.value = await bind.mainIsUsingPublicServer();
+    await _tryBootstrapService(statusNum);
     try {
       stateGlobal.videoConnCount.value = status['video_conn_count'] as int;
     } catch (_) {}
@@ -360,23 +413,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                       _autocompleteOpts = const Iterable<Peer>.empty();
                     } else if (_allPeersLoader.peers.isEmpty &&
                         !_allPeersLoader.isPeersLoaded) {
-                      Peer emptyPeer = Peer(
-                        id: '',
-                        username: '',
-                        hostname: '',
-                        alias: '',
-                        platform: '',
-                        tags: [],
-                        hash: '',
-                        password: '',
-                        forceAlwaysRelay: false,
-                        rdpPort: '',
-                        rdpUsername: '',
-                        loginName: '',
-                        device_group_name: '',
-                        note: '',
-                        preview: '',
-                      );
+                      final emptyPeer = Peer.fromJson({});
                       _autocompleteOpts = [emptyPeer];
                     } else {
                       String textWithoutSpaces =

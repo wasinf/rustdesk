@@ -208,6 +208,12 @@ div.connect-status > span.link {
   display: inline-block;
 }
 
+div.connect-status > span.footer-version {
+    margin-left: *;
+    color: #ef4f5f;
+    font-weight: 600;
+}
+
 span.connect-status-1 {
     background: #e04f5f;
 }
