@@ -2344,7 +2344,13 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
 }
 
 bool hasKnownUriPrefix(String raw) {
-  final normalized = raw.trim().toLowerCase();
+  var normalized = raw.trim();
+  if (normalized.length >= 2 &&
+      ((normalized.startsWith('"') && normalized.endsWith('"')) ||
+          (normalized.startsWith("'") && normalized.endsWith("'")))) {
+    normalized = normalized.substring(1, normalized.length - 1);
+  }
+  normalized = normalized.toLowerCase();
   if (normalized.isEmpty) {
     return false;
   }
@@ -2357,8 +2363,16 @@ bool hasKnownUriPrefix(String raw) {
     "rustdesk://",
   };
 
-  return prefixes.any((prefix) =>
-      prefix.isNotEmpty && normalized.startsWith(prefix));
+  if (prefixes.any(
+      (prefix) => prefix.isNotEmpty && normalized.startsWith(prefix))) {
+    return true;
+  }
+
+  // Accept links without `//` too, e.g. `eco-remote:123456789`.
+  final schemes = prefixes
+      .map((prefix) => prefix.replaceAll("://", "").replaceAll(":", ""))
+      .where((scheme) => scheme.isNotEmpty);
+  return schemes.any((scheme) => normalized.startsWith("$scheme:"));
 }
 
 List<String>? urlLinkToCmdArgs(Uri uri) {
@@ -2374,25 +2388,28 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
     "terminal",
     "terminal-admin",
   ];
-  if (uri.authority.isEmpty &&
-      uri.path.split('').every((char) => char == '/')) {
+  final authorityRaw = uri.authority.trim();
+  final authority = authorityRaw.toLowerCase();
+  final path = uri.path.trim();
+  final pathNoPrefixSlashes = path.replaceFirst(RegExp(r'^/+'), '');
+  if (authority.isEmpty && path.split('').every((char) => char == '/')) {
     return [];
-  } else if (uri.authority == "connection" && uri.path.startsWith("/new/")) {
+  } else if (authority == "connection" && path.startsWith("/new/")) {
     // For compatibility
     command = '--connect';
-    id = uri.path.substring("/new/".length);
-  } else if (uri.authority == "config") {
+    id = path.substring("/new/".length);
+  } else if (authority == "config") {
     if (isAndroid || isIOS) {
-      final config = uri.path.substring("/".length);
+      final config = path.substring("/".length);
       // add a timer to make showToast work
       Timer(Duration(seconds: 1), () {
         importConfig(null, null, config);
       });
     }
     return null;
-  } else if (uri.authority == "password") {
+  } else if (authority == "password") {
     if (isAndroid || isIOS) {
-      final password = uri.path.substring("/".length);
+      final password = path.substring("/".length);
       if (password.isNotEmpty) {
         Timer(Duration(seconds: 1), () async {
           await bind.mainSetPermanentPassword(password: password);
@@ -2400,26 +2417,69 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
         });
       }
     }
-  } else if (options.contains(uri.authority)) {
-    command = '--${uri.authority}';
-    if (uri.path.length > 1) {
-      id = uri.path.substring(1);
+  } else if (options.contains(authority)) {
+    command = '--$authority';
+    if (path.length > 1) {
+      id = path.substring(1);
     }
-  } else if (uri.authority.length > 2 &&
-      (uri.path.length <= 1 ||
-          (uri.path == '/r' || uri.path.startsWith('/r@')))) {
+  } else if (authority.length > 2 &&
+      (path.length <= 1 || (path == '/r' || path.startsWith('/r@')))) {
     // rustdesk://<connect-id>
     // rustdesk://<connect-id>/r
     // rustdesk://<connect-id>/r@<server>
     command = '--connect';
-    id = uri.authority;
-    if (uri.path.length > 1) {
-      id = id + uri.path;
+    id = authorityRaw;
+    if (path.length > 1) {
+      id = id + path;
     }
+  } else if (authority.isEmpty && pathNoPrefixSlashes.isNotEmpty) {
+    // Accept formats like:
+    // eco-remote:123456789
+    // eco-remote:///123456789
+    command = '--connect';
+    id = pathNoPrefixSlashes;
   }
 
   var queryParameters =
       uri.queryParameters.map((k, v) => MapEntry(k.toLowerCase(), v));
+
+  if (id == null) {
+    for (final key in ['id', 'client_id', 'remote_id', 'peer_id']) {
+      final candidate = queryParameters[key]?.trim();
+      if (candidate != null && candidate.isNotEmpty) {
+        command ??= '--connect';
+        id = candidate;
+        break;
+      }
+    }
+  }
+
+  if (id != null && id.contains('/')) {
+    final segments = id
+        .split('/')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (segments.length >= 3 &&
+        segments[0].toLowerCase() == 'connection' &&
+        segments[1].toLowerCase() == 'new') {
+      command ??= '--connect';
+      id = segments.sublist(2).join('/');
+    } else if (segments.length >= 2 &&
+        ['connect', 'conectar', 'connection', 'new']
+            .contains(segments[0].toLowerCase())) {
+      command ??= '--connect';
+      id = segments.last;
+    }
+  }
+
+  if (id != null) {
+    var normalizedId = id.trim();
+    if (RegExp(r'^[0-9 ]+$').hasMatch(normalizedId)) {
+      normalizedId = normalizedId.replaceAll(' ', '');
+    }
+    id = normalizedId;
+  }
 
   var key = queryParameters["key"];
   if (id != null) {

@@ -1044,10 +1044,33 @@ pub fn get_uri_prefixes() -> Vec<String> {
 
 #[inline]
 pub fn has_known_uri_prefix(arg: &str) -> bool {
-    let lower = arg.to_lowercase();
-    get_uri_prefixes()
+    let trimmed = arg
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_lowercase();
+    if get_uri_prefixes()
         .into_iter()
-        .any(|prefix| lower.starts_with(&prefix))
+        .any(|prefix| trimmed.starts_with(&prefix))
+    {
+        return true;
+    }
+
+    let mut schemes = get_uri_prefixes()
+        .into_iter()
+        .map(|prefix| {
+            prefix
+                .trim_end_matches("://")
+                .trim_end_matches(':')
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    schemes.sort();
+    schemes.dedup();
+    schemes
+        .into_iter()
+        .filter(|scheme| !scheme.is_empty())
+        .any(|scheme| trimmed.starts_with(&format!("{}:", scheme)))
 }
 
 #[cfg(target_os = "macos")]
