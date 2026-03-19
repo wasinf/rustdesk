@@ -3078,7 +3078,12 @@ pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
 pub fn install_service() -> bool {
     log::info!("Installing service...");
     let _installing = crate::platform::InstallingService::new();
-    let (_, _, _, exe) = get_install_info();
+    let (_, _, _, install_exe) = get_install_info();
+    let exe = std::env::current_exe()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .filter(|p| PathBuf::from(p).exists())
+        .unwrap_or(install_exe);
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
     Config::set_option("stop-service".into(), "".into());
     crate::ipc::EXIT_RECV_CLOSE.store(false, Ordering::Relaxed);
@@ -3610,7 +3615,12 @@ sc start \"{service_name}\"
 }
 
 fn run_after_run_cmds(silent: bool) {
-    let (_, _, _, exe) = get_install_info();
+    let (_, _, _, install_exe) = get_install_info();
+    let exe = std::env::current_exe()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .filter(|p| PathBuf::from(p).exists())
+        .unwrap_or(install_exe);
     if !silent {
         log::debug!("Spawn new window");
         allow_err!(std::process::Command::new("cmd")
