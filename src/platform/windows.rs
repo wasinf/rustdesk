@@ -1327,20 +1327,41 @@ pub fn check_update_broker_process() -> ResultType<()> {
 }
 
 fn get_install_info_with_subkey(subkey: String) -> (String, String, String, String) {
-    let mut path = get_reg_of(&subkey, "InstallLocation");
-    if path.is_empty() {
-        path = get_default_install_path();
-    }
+    let reg_path = get_reg_of(&subkey, "InstallLocation");
+    let mut path = if reg_path.is_empty() {
+        get_default_install_path()
+    } else {
+        reg_path.clone()
+    };
     path = path.trim_end_matches('\\').to_owned();
+    let current_exe = std::env::current_exe().ok();
+    let preferred_exe_name = "eco-remoto.exe";
+    let fallback_exe_name = format!("{}.exe", crate::get_app_name());
+
+    // If registry points to a stale install location, recover by using the
+    // current executable directory (common after brand/path migrations).
+    if !path.is_empty() && !reg_path.is_empty() {
+        let reg_dir = PathBuf::from(&path);
+        let reg_has_known_exe = reg_dir.join(preferred_exe_name).exists()
+            || reg_dir.join(&fallback_exe_name).exists();
+        if !reg_has_known_exe {
+            if let Some(cur_exe) = current_exe.as_ref() {
+                if let Some(cur_dir) = cur_exe.parent() {
+                    path = cur_dir.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
     let start_menu = format!(
         "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\{}",
         crate::get_app_name()
     );
-    let preferred_exe_name = "eco-remoto.exe";
-    let fallback_exe_name = format!("{}.exe", crate::get_app_name());
     let exe_name = if PathBuf::from(&path).join(preferred_exe_name).exists() {
         preferred_exe_name.to_owned()
-    } else if let Ok(cur_exe) = std::env::current_exe() {
+    } else if PathBuf::from(&path).join(&fallback_exe_name).exists() {
+        fallback_exe_name.clone()
+    } else if let Some(cur_exe) = current_exe {
         cur_exe
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
