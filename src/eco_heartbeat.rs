@@ -91,8 +91,11 @@ pub fn start() {
 
                 let ip = Config::get_option("local-ip-addr");
                 let alias = Config::get_option("eco-alias");
+                let now_ms = hbb_common::get_time();
+                let now_s = now_ms / 1000;
 
                 let payload = json!({
+                    "id": client_id.clone(),
                     "client_id": client_id,
                     "hostname": hostname,
                     "username": username,
@@ -101,7 +104,9 @@ pub fn start() {
                     "ip": if ip.is_empty() { None::<String> } else { Some(ip) },
                     "version": crate::VERSION,
                     "client_version": crate::VERSION,
-                    "timestamp": hbb_common::get_time(),
+                    "timestamp": now_s,
+                    "ts": now_s,
+                    "timestamp_ms": now_ms,
                 });
 
                 let mut sent = false;
@@ -112,6 +117,8 @@ pub fn start() {
                     match client
                         .post(&url)
                         .header("x-api-key", api_key.clone())
+                        .header("X-API-Key", api_key.clone())
+                        .header("Authorization", format!("Bearer {}", api_key))
                         .timeout(Duration::from_secs(HEARTBEAT_REQUEST_TIMEOUT_SECS))
                         .json(&payload)
                         .send()
