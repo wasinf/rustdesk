@@ -83,35 +83,19 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
               .marginOnly(left: em),
         );
 
-    setupServerWidget() => Flexible(
-          child: Offstage(
-            offstage: !(!_svcStopped.value &&
-                stateGlobal.svcStatus.value == SvcStatus.ready &&
-                _svcIsUsingPublicServer.value),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(', ', style: TextStyle(fontSize: em)),
-                Flexible(
-                  child: InkWell(
-                    onTap: onUsePublicServerGuide,
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            translate('setup_server_tip'),
-                            style: TextStyle(
-                                decoration: TextDecoration.underline,
-                                fontSize: em),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              ],
-            ),
-          ),
+    setupServerWidget() => Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(', ', style: TextStyle(fontSize: em)),
+            InkWell(
+              onTap: onUsePublicServerGuide,
+              child: Text(
+                translate('setup_server_tip'),
+                style:
+                    TextStyle(decoration: TextDecoration.underline, fontSize: em),
+              ),
+            )
+          ],
         );
 
     versionWidget() => Obx(() {
@@ -153,14 +137,19 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
             if (!isIncomingOnly) startServiceWidget(),
             // ready && public
             // No need to show the guide if is custom client.
-            if (!isIncomingOnly) setupServerWidget(),
+            if (!isIncomingOnly &&
+                !_svcStopped.value &&
+                stateGlobal.svcStatus.value == SvcStatus.ready &&
+                _svcIsUsingPublicServer.value)
+              setupServerWidget(),
             if (!isIncomingOnly) const Spacer(),
-            if (!isIncomingOnly) versionWidget().marginOnly(right: em),
+            if (!isIncomingOnly) versionWidget().marginOnly(right: 4),
           ],
         );
 
     return Container(
       height: height,
+      width: double.infinity,
       child: Obx(() => isIncomingOnly
           ? Column(
               children: [
