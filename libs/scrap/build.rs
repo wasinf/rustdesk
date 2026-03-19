@@ -159,7 +159,18 @@ fn generate_bindings(
     }
 
     b.generate().unwrap().write_to_file(ffi_rs).unwrap();
-    fs::copy(ffi_rs, exact_file).ok(); // ignore failure
+
+    // Keep generated bindings compatible with Rust 1.75 toolchain used by ECO build.
+    // Newer bindgen may emit `unsafe extern "C"` blocks which 1.75 rejects.
+    if let Ok(mut generated) = fs::read_to_string(ffi_rs) {
+        if generated.contains("unsafe extern \"") {
+            generated = generated.replace("unsafe extern \"", "extern \"");
+            let _ = fs::write(ffi_rs, &generated);
+        }
+        fs::write(exact_file, generated).ok(); // ignore failure
+    } else {
+        fs::copy(ffi_rs, exact_file).ok(); // ignore failure
+    }
 }
 
 fn struct_is_opaque(bindings: &str, struct_name: &str) -> bool {
