@@ -83,10 +83,10 @@ pub fn core_main() -> Option<Vec<String>> {
     if args.is_empty() {
         #[cfg(target_os = "linux")]
         let should_check_start_tray = crate::check_process("--server", false);
-        // On Windows, service is the source of truth for tray when service is running.
-        // UI process starts tray only when service is not running to avoid duplicates.
+        // On Windows, always let the main UI ensure one user-session tray process.
+        // This keeps tray icon visible even when service-side spawning runs under SYSTEM.
         #[cfg(target_os = "windows")]
-        let should_check_start_tray = !crate::platform::is_self_service_running();
+        let should_check_start_tray = true;
         if should_check_start_tray && !crate::check_process("--tray", true) {
             #[cfg(target_os = "linux")]
             hbb_common::allow_err!(crate::platform::check_autostart_config());
@@ -171,7 +171,12 @@ pub fn core_main() -> Option<Vec<String>> {
         }
     }
     #[cfg(windows)]
-    if !crate::platform::is_installed() && (_is_elevate || _is_run_as_system) {
+    if _is_run_as_system {
+        crate::platform::elevate_or_run_as_system(click_setup, _is_elevate, _is_run_as_system);
+        return None;
+    }
+    #[cfg(windows)]
+    if !crate::platform::is_installed() && _is_elevate {
         crate::platform::elevate_or_run_as_system(click_setup, _is_elevate, _is_run_as_system);
         return None;
     }
@@ -189,11 +194,8 @@ pub fn core_main() -> Option<Vec<String>> {
             crate::platform::try_remove_temp_update_files();
             hbb_common::config::PeerConfig::preload_peers();
             crate::platform::try_start_service_if_needed();
-            // For installed Windows builds, heartbeat source of truth is the service process.
-            // Start heartbeat in UI only when running portable / without installed service.
-            if !crate::platform::is_installed() && !crate::platform::is_self_service_running() {
-                crate::eco_heartbeat::start();
-            }
+            // Also keep heartbeat in UI as a reliability fallback for custom installs.
+            crate::eco_heartbeat::start();
         }
         #[cfg(not(windows))]
         {

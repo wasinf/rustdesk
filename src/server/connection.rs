@@ -2142,12 +2142,8 @@ impl Connection {
                     }
                 }
             });
-            #[cfg(all(windows, feature = "flutter"))]
-            std::thread::spawn(move || {
-                if crate::is_server() && !crate::check_process("--tray", false) {
-                    crate::platform::run_as_user(vec!["--tray"]).ok();
-                }
-            });
+            // Tray bootstrap on Windows is handled by main UI startup flow.
+            // Avoid spawning tray from server-side path to prevent duplicates.
         }
     }
 
