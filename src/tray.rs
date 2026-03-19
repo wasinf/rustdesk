@@ -75,7 +75,15 @@ fn make_tray() -> hbb_common::ResultType<()> {
     let mut event_loop = EventLoopBuilder::new().build();
 
     let tray_menu = Menu::new();
-    let quit_i = MenuItem::new(translate("Stop service".to_owned()), true, None);
+    let quit_i = MenuItem::new(
+        if cfg!(windows) && crate::common::is_custom_client() {
+            translate("Exit".to_owned())
+        } else {
+            translate("Stop service".to_owned())
+        },
+        true,
+        None,
+    );
     let open_i = MenuItem::new(translate("Open".to_owned()), true, None);
     tray_menu.append_items(&[&open_i, &quit_i]).ok();
     let tooltip = |count: usize| {
@@ -177,6 +185,11 @@ fn make_tray() -> hbb_common::ResultType<()> {
 
         if let Ok(event) = menu_channel.try_recv() {
             if event.id == quit_i.id() {
+                #[cfg(windows)]
+                if crate::common::is_custom_client() {
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                }
                 /* failed in windows, seems no permission to check system process
                 if !crate::check_process("--server", false) {
                     *control_flow = ControlFlow::Exit;
