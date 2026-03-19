@@ -187,6 +187,7 @@ Type: files; Name: "{app}\RustDesk.exe"
 Filename: "{cmd}"; Parameters: "/C sc stop ""RustDesk"" >nul 2>nul & sc delete ""RustDesk"" >nul 2>nul & sc stop ""ECO REMOTO"" >nul 2>nul & sc delete ""ECO REMOTO"" >nul 2>nul & sc stop ""ECO-REMOTO"" >nul 2>nul & sc delete ""ECO-REMOTO"" >nul 2>nul"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --uninstall-service"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --install-service"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/C sc stop ""EcoRemoto"" >nul 2>nul & sc config ""EcoRemoto"" binPath= ""\""{app}\eco-remoto.exe\"" --service"" start= auto"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C sc start ""EcoRemoto"""; Flags: runhidden waituntilterminated
 Filename: "{app}\eco-remoto.exe"; Description: "Abrir ECO REMOTO"; Flags: nowait postinstall unchecked skipifsilent
 
