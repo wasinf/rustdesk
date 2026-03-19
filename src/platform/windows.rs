@@ -616,6 +616,8 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     // Tell the system that the service is running now
     status_handle.set_service_status(next_status)?;
 
+    cleanup_stale_portable_processes_for_installed();
+
     // Keep SaaS heartbeat alive from the service process itself.
     // This avoids false offline when --server child cannot be launched
     // due to transient Windows session/token issues.
@@ -730,6 +732,33 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     })?;
 
     Ok(())
+}
+
+fn cleanup_stale_portable_processes_for_installed() {
+    if !is_installed() {
+        return;
+    }
+    let app_exe_name = format!("{}.exe", crate::get_app_name());
+
+    // Portable-service bootstrap process should never stay alive on installed builds.
+    let run_as_system_pids =
+        crate::platform::get_pids_of_process_with_first_arg(&app_exe_name, "--run-as-system");
+    if !run_as_system_pids.is_empty() {
+        allow_err!(kill_process_by_pids(&app_exe_name, run_as_system_pids));
+    }
+
+    // Tray in session 0 (SYSTEM) is stale/noisy; keep only user-session tray instances.
+    let tray_pids = crate::platform::get_pids_of_process_with_args(&app_exe_name, &["--tray"]);
+    let stale_system_tray_pids: Vec<Pid> = tray_pids
+        .into_iter()
+        .filter(|pid| get_session_id_of_process(pid.as_u32()) == Some(0))
+        .collect();
+    if !stale_system_tray_pids.is_empty() {
+        allow_err!(kill_process_by_pids(
+            &app_exe_name,
+            stale_system_tray_pids,
+        ));
+    }
 }
 
 async fn launch_server(session_id: DWORD, close_first: bool) -> ResultType<HANDLE> {
