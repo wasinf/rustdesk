@@ -170,6 +170,9 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
+CloseApplications=yes
+ForceCloseApplications=yes
+RestartApplications=no
 SetupIconFile=__SETUP_ICON__
 
 [Languages]
@@ -186,11 +189,35 @@ Filename: "{cmd}"; Parameters: "/C sc stop ""RustDesk"" >nul 2>nul & sc delete "
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --uninstall-service"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --install-service"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C sc start ""EcoRemoto"""; Flags: runhidden waituntilterminated
-Filename: "{app}\eco-remoto.exe"; Description: "Abrir ECO REMOTO"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\eco-remoto.exe"; Description: "Abrir ECO REMOTO"; Flags: nowait postinstall unchecked skipifsilent
 
 [Icons]
 Name: "{autodesktop}\ECO REMOTO"; Filename: "{app}\eco-remoto.exe"
 Name: "{autoprograms}\ECO REMOTO"; Filename: "{app}\eco-remoto.exe"
+
+[Code]
+function ExecHidden(const CmdLine: string): Integer;
+var
+  ResultCode: Integer;
+begin
+  if Exec(ExpandConstant('{cmd}'), '/C ' + CmdLine, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Result := ResultCode
+  else
+    Result := -1;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Log('Stopping EcoRemoto/RustDesk processes before file copy...');
+  ExecHidden('sc stop "EcoRemoto" >nul 2>nul');
+  ExecHidden('sc stop "RustDesk" >nul 2>nul');
+  ExecHidden('sc stop "ECO REMOTO" >nul 2>nul');
+  ExecHidden('sc stop "ECO-REMOTO" >nul 2>nul');
+  ExecHidden('taskkill /F /IM eco-remoto.exe >nul 2>nul');
+  ExecHidden('taskkill /F /IM rustdesk.exe >nul 2>nul');
+  Sleep(800);
+  Result := '';
+end;
 '@
 
   $iss = $iss.Replace("__OUTPUT_DIR__", $artifactPath.Replace("\", "\\"))
