@@ -187,6 +187,7 @@ Type: files; Name: "{app}\RustDesk.exe"
 Filename: "{cmd}"; Parameters: "/C sc stop ""RustDesk"" >nul 2>nul & sc delete ""RustDesk"" >nul 2>nul & sc stop ""ECO REMOTO"" >nul 2>nul & sc delete ""ECO REMOTO"" >nul 2>nul & sc stop ""ECO-REMOTO"" >nul 2>nul & sc delete ""ECO-REMOTO"" >nul 2>nul"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --uninstall-service"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --install-service"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --after-install"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C sc stop ""EcoRemoto"" >nul 2>nul & sc config ""EcoRemoto"" binPath= ""\""{app}\eco-remoto.exe\"" --service"" start= auto"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C sc start ""EcoRemoto"""; Flags: runhidden waituntilterminated
 Filename: "{app}\eco-remoto.exe"; Description: "Abrir ECO REMOTO"; Flags: nowait postinstall unchecked skipifsilent
@@ -290,6 +291,21 @@ function Resolve-AppExe([string]$installDir) {
   throw "Executavel principal nao encontrado na pasta de instalacao: $installDir"
 }
 
+function Register-ProtocolAliases([string]$exePath) {
+  $schemes = @("eco-remote", "eco-remoto", "ecoremoto", "rustdesk")
+  $openCommand = "`"$exePath`" `"%1`""
+  foreach ($scheme in $schemes) {
+    Remove-Item "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$scheme\UserChoice" -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($root in @("Registry::HKEY_CURRENT_USER\Software\Classes", "Registry::HKEY_CLASSES_ROOT")) {
+      $base = "$root\$scheme"
+      New-Item "$base\shell\open\command" -Force | Out-Null
+      Set-Item -Path $base -Value "URL:ECO REMOTO Protocol"
+      Set-ItemProperty -Path $base -Name "URL Protocol" -Value ""
+      Set-Item -Path "$base\shell\open\command" -Value $openCommand
+    }
+  }
+}
+
 Ensure-Admin
 
 $payloadDir = Join-Path $PSScriptRoot "app"
@@ -330,6 +346,8 @@ if (Test-Path $legacyExe) {
 }
 
 Start-Service "EcoRemoto" -ErrorAction SilentlyContinue
+& $exe --after-install | Out-Null
+Register-ProtocolAliases -exePath $exe
 
 # Aguarda o servico estabilizar para evitar corrida de inicializacao e icone duplicado no tray.
 $serviceReady = $false
