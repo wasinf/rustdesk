@@ -128,6 +128,69 @@ function Apply-BrandIcon($repoRoot, $sourceIco) {
   }
 }
 
+function Add-ProtocolSupportFiles([string]$targetDir) {
+  $launcherPath = Join-Path $targetDir "eco-protocol-launcher.cmd"
+  $registerScriptPath = Join-Path $targetDir "eco_register_protocols.ps1"
+
+  $launcherContent = @'
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+set "URI=%~1"
+set "TMP=!URI:eco-remote://=!"
+set "TMP=!TMP:eco-remoto://=!"
+set "TMP=!TMP:ecoremoto://=!"
+set "TMP=!TMP:rustdesk://=!"
+for /f "tokens=1 delims=/?#" %%A in ("!TMP!") do set "ID=%%A"
+set "ID=!ID: =!"
+echo [%date% %time%] URI=%~1 ID=!ID!>>"%TEMP%\eco-protocol.log"
+
+if defined ID (
+  start "" "%~dp0eco-remoto.exe" --connect "!ID!"
+) else (
+  start "" "%~dp0eco-remoto.exe" "%~1"
+)
+'@
+  Set-Content -Path $launcherPath -Value $launcherContent -Encoding ASCII
+
+  $registerScriptContent = @'
+param(
+  [string]$InstallDir = $PSScriptRoot
+)
+
+$ErrorActionPreference = "Stop"
+
+$launcher = Join-Path $InstallDir "eco-protocol-launcher.cmd"
+if (!(Test-Path $launcher)) {
+  throw "Launcher de protocolo nao encontrado: $launcher"
+}
+
+$command = "`"$launcher`" `"%1`""
+$schemes = @("eco-remote", "eco-remoto", "ecoremoto", "rustdesk")
+
+function Set-Protocol([Microsoft.Win32.RegistryKey]$hive, [string]$scheme, [string]$value) {
+  $base = $hive.CreateSubKey("Software\Classes\$scheme")
+  $base.SetValue("", "URL:ECO REMOTO Protocol", [Microsoft.Win32.RegistryValueKind]::String)
+  $base.SetValue("URL Protocol", "", [Microsoft.Win32.RegistryValueKind]::String)
+  $open = $hive.CreateSubKey("Software\Classes\$scheme\shell\open\command")
+  $open.SetValue("", $value, [Microsoft.Win32.RegistryValueKind]::String)
+}
+
+foreach ($scheme in $schemes) {
+  Remove-Item "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$scheme\UserChoice" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+foreach ($scheme in $schemes) {
+  Set-Protocol ([Microsoft.Win32.Registry]::CurrentUser) $scheme $command
+  try {
+    Set-Protocol ([Microsoft.Win32.Registry]::LocalMachine) $scheme $command
+  } catch {
+    # LocalMachine may fail if installer context lacks permission; HKCU is sufficient fallback.
+  }
+}
+'@
+  Set-Content -Path $registerScriptPath -Value $registerScriptContent -Encoding UTF8
+}
+
 function New-EcoExeInstaller($releaseDir, $artifactPath, $outputName, $stamp, $repoRoot, $isccPath) {
   $stageRoot = Join-Path $artifactPath "$outputName-setup-stage-$stamp"
   $appStage = Join-Path $stageRoot "app"
@@ -136,6 +199,7 @@ function New-EcoExeInstaller($releaseDir, $artifactPath, $outputName, $stamp, $r
   }
   New-Item -ItemType Directory -Path $appStage -Force | Out-Null
   Copy-Item (Join-Path $releaseDir "*") $appStage -Recurse -Force
+  Add-ProtocolSupportFiles $appStage
 
   $setupIcon = Join-Path $repoRoot "branding\icon.ico"
   if (-not (Test-Path $setupIcon)) {
@@ -188,6 +252,7 @@ Filename: "{cmd}"; Parameters: "/C sc stop ""RustDesk"" >nul 2>nul & sc delete "
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --uninstall-service"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --install-service"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C ""{app}\eco-remoto.exe"" --after-install"; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\eco_register_protocols.ps1"" -InstallDir ""{app}"""; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C sc stop ""EcoRemoto"" >nul 2>nul & sc config ""EcoRemoto"" binPath= ""\""{app}\eco-remoto.exe\"" --service"" start= auto"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C sc start ""EcoRemoto"""; Flags: runhidden waituntilterminated
 Filename: "{app}\eco-remoto.exe"; Description: "Abrir ECO REMOTO"; Flags: nowait postinstall unchecked skipifsilent
@@ -252,6 +317,7 @@ function New-EcoInstallerPackage($releaseDir, $artifactPath, $outputName, $stamp
   New-Item -ItemType Directory -Path $appDir -Force | Out-Null
 
   Copy-Item (Join-Path $releaseDir "*") $appDir -Recurse -Force
+  Add-ProtocolSupportFiles $appDir
 
   $installPs1 = @'
 #requires -version 5.1
@@ -291,19 +357,13 @@ function Resolve-AppExe([string]$installDir) {
   throw "Executavel principal nao encontrado na pasta de instalacao: $installDir"
 }
 
-function Register-ProtocolAliases([string]$exePath) {
-  $schemes = @("eco-remote", "eco-remoto", "ecoremoto", "rustdesk")
-  $openCommand = "`"$exePath`" `"%1`""
-  foreach ($scheme in $schemes) {
-    Remove-Item "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$scheme\UserChoice" -Recurse -Force -ErrorAction SilentlyContinue
-    foreach ($root in @("Registry::HKEY_CURRENT_USER\Software\Classes", "Registry::HKEY_CLASSES_ROOT")) {
-      $base = "$root\$scheme"
-      New-Item "$base\shell\open\command" -Force | Out-Null
-      Set-Item -Path $base -Value "URL:ECO REMOTO Protocol"
-      Set-ItemProperty -Path $base -Name "URL Protocol" -Value ""
-      Set-Item -Path "$base\shell\open\command" -Value $openCommand
-    }
+function Register-ProtocolAliases([string]$installDir) {
+  $registerScript = Join-Path $installDir "eco_register_protocols.ps1"
+  if (Test-Path $registerScript) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File $registerScript -InstallDir $installDir | Out-Null
+    return
   }
+  Write-Host "[ECO-INSTALLER] Aviso: script de registro de protocolo nao encontrado: $registerScript" -ForegroundColor Yellow
 }
 
 Ensure-Admin
@@ -347,7 +407,7 @@ if (Test-Path $legacyExe) {
 
 Start-Service "EcoRemoto" -ErrorAction SilentlyContinue
 & $exe --after-install | Out-Null
-Register-ProtocolAliases -exePath $exe
+Register-ProtocolAliases -installDir $installDir
 
 # Aguarda o servico estabilizar para evitar corrida de inicializacao e icone duplicado no tray.
 $serviceReady = $false
