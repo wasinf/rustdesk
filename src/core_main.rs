@@ -9,6 +9,7 @@ use hbb_common::platform::register_breakdown_handler;
 use hbb_common::{config, log};
 #[cfg(windows)]
 use tauri_winrt_notification::{Duration, Sound, Toast};
+use url::Url;
 
 #[macro_export]
 macro_rules! my_println{
@@ -20,6 +21,92 @@ macro_rules! my_println{
             &format!("{}", format_args!($($arg)*))
         );
     };
+}
+
+fn uri_link_to_cmd_args(raw: &str) -> Option<Vec<String>> {
+    let arg = raw.trim().trim_matches('"').trim_matches('\'');
+    if arg.is_empty() || !crate::has_known_uri_prefix(arg) {
+        return None;
+    }
+
+    let uri = Url::parse(arg).ok()?;
+    let authority_raw = uri.host_str().unwrap_or("").trim().to_owned();
+    let authority = authority_raw.to_lowercase();
+    let path = uri.path().trim();
+    let path_no_prefix_slashes = path.trim_start_matches('/').to_owned();
+
+    let mut command = "--connect".to_owned();
+    let mut id = String::new();
+
+    match authority.as_str() {
+        "connect" | "play" | "file-transfer" | "view-camera" | "port-forward" | "rdp"
+        | "terminal" | "terminal-admin" => {
+            command = format!("--{}", authority);
+            id = path_no_prefix_slashes;
+        }
+        "connection" if path.starts_with("/new/") => {
+            id = path.trim_start_matches("/new/").to_owned();
+        }
+        _ if !authority.is_empty() => {
+            id = authority_raw;
+            if path.eq_ignore_ascii_case("/r") || path.to_lowercase().starts_with("/r@") {
+                id.push_str(path);
+            }
+        }
+        _ if !path_no_prefix_slashes.is_empty() => {
+            id = path_no_prefix_slashes;
+        }
+        _ => {}
+    }
+
+    if id.is_empty() {
+        for key in ["id", "client_id", "remote_id", "peer_id"] {
+            if let Some((_, value)) = uri.query_pairs().find(|(k, _)| k.eq_ignore_ascii_case(key))
+            {
+                let value = value.trim().to_owned();
+                if !value.is_empty() {
+                    id = value;
+                    break;
+                }
+            }
+        }
+    }
+
+    if id.is_empty() {
+        return None;
+    }
+
+    if id.chars().all(|c| c.is_ascii_digit() || c == ' ') {
+        id = id.replace(' ', "");
+    }
+
+    let mut out = vec![command, id];
+    if let Some((_, password)) = uri
+        .query_pairs()
+        .find(|(k, _)| k.eq_ignore_ascii_case("password"))
+    {
+        if !password.is_empty() {
+            out.push("--password".to_owned());
+            out.push(password.into_owned());
+        }
+    }
+    if let Some((_, switch_uuid)) = uri
+        .query_pairs()
+        .find(|(k, _)| k.eq_ignore_ascii_case("switch_uuid"))
+    {
+        if !switch_uuid.is_empty() {
+            out.push("--switch_uuid".to_owned());
+            out.push(switch_uuid.into_owned());
+        }
+    }
+    if uri
+        .query_pairs()
+        .any(|(k, _)| k.eq_ignore_ascii_case("relay"))
+    {
+        out.push("--relay".to_owned());
+    }
+
+    Some(out)
 }
 
 /// shared by flutter and sciter main function
@@ -65,7 +152,25 @@ pub fn core_main() -> Option<Vec<String>> {
             {
                 _is_flutter_invoke_new_connection = true;
             }
-            if arg == "--elevate" {
+            if let Some(uri_args) = uri_link_to_cmd_args(&arg) {
+                for parsed in uri_args {
+                    #[cfg(feature = "flutter")]
+                    if [
+                        "--connect",
+                        "--play",
+                        "--file-transfer",
+                        "--view-camera",
+                        "--port-forward",
+                        "--terminal",
+                        "--rdp",
+                    ]
+                    .contains(&parsed.as_str())
+                    {
+                        _is_flutter_invoke_new_connection = true;
+                    }
+                    args.push(parsed);
+                }
+            } else if arg == "--elevate" {
                 _is_elevate = true;
             } else if arg == "--run-as-system" {
                 _is_run_as_system = true;
