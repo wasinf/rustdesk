@@ -937,7 +937,13 @@ fn core_main_invoke_new_connection(args: Vec<String>) -> Option<Vec<String>> {
             uni_links.as_str(),
             false,
         );
-        return if res { None } else { Some(vec![uni_links]) };
+        if res {
+            return None;
+        }
+        // When launching a new instance, prefer CLI args (e.g. --connect) so
+        // Flutter receives a stable, non-normalized input across shells.
+        let fallback_args = uri_link_to_cmd_args(&uni_links).unwrap_or_else(|| vec![uni_links]);
+        return Some(fallback_args);
     }
     #[cfg(target_os = "macos")]
     {
