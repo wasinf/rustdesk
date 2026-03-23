@@ -220,7 +220,7 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     #[cfg(feature = "flutter")]
     if _is_flutter_invoke_new_connection {
-        return core_main_invoke_new_connection(std::env::args());
+        return core_main_invoke_new_connection(args.clone());
     }
     let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
     if click_setup && !config::is_disable_installation() {
@@ -866,20 +866,24 @@ fn import_config(path: &str) {
 /// If it returns [`None`], then the process will terminate, and flutter gui will not be started.
 /// If it returns [`Some`], then the process will continue, and flutter gui will be started.
 #[cfg(feature = "flutter")]
-fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<String>> {
+fn core_main_invoke_new_connection(args: Vec<String>) -> Option<Vec<String>> {
     let mut authority = None;
     let mut id = None;
     let mut param_array = vec![];
-    while let Some(arg) = args.next() {
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
         match arg.as_str() {
             "--connect" | "--play" | "--file-transfer" | "--view-camera" | "--port-forward"
             | "--terminal" | "--rdp" => {
                 authority = Some((&arg.to_string()[2..]).to_owned());
-                id = args.next();
+                id = args.get(i + 1).cloned();
+                i += 1;
             }
             "--password" => {
-                if let Some(password) = args.next() {
+                if let Some(password) = args.get(i + 1) {
                     param_array.push(format!("password={password}"));
+                    i += 1;
                 }
             }
             "--relay" => {
@@ -887,12 +891,14 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
             }
             // inner
             "--switch_uuid" => {
-                if let Some(switch_uuid) = args.next() {
+                if let Some(switch_uuid) = args.get(i + 1) {
                     param_array.push(format!("switch_uuid={switch_uuid}"));
+                    i += 1;
                 }
             }
             _ => {}
         }
+        i += 1;
     }
     let mut uni_links = Default::default();
     if let Some(authority) = authority {
@@ -931,7 +937,7 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
             uni_links.as_str(),
             false,
         );
-        return if res { None } else { Some(Vec::new()) };
+        return if res { None } else { Some(vec![uni_links]) };
     }
     #[cfg(target_os = "macos")]
     {
