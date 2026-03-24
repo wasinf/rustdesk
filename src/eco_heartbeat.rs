@@ -98,31 +98,49 @@ pub fn start() {
                 let now_s = now_ms / 1000;
 
                 #[cfg(not(any(target_os = "ios")))]
-                let mut conns = Connection::alive_conns();
-                #[cfg(not(any(target_os = "ios")))]
-                if conns.is_empty() && !crate::common::is_server() {
-                    if let Ok(list) = crate::ipc::get_alive_conns() {
-                        conns = list;
+                let conns_opt: Option<Vec<i32>> = {
+                    if crate::common::is_server() {
+                        // Server process owns the authoritative list (can be empty).
+                        Some(Connection::alive_conns())
+                    } else {
+                        // Non-server processes should avoid clearing conns when they can't see them.
+                        let local = Connection::alive_conns();
+                        if !local.is_empty() {
+                            Some(local)
+                        } else if let Ok(list) = crate::ipc::get_alive_conns() {
+                            if list.is_empty() {
+                                None
+                            } else {
+                                Some(list)
+                            }
+                        } else {
+                            None
+                        }
                     }
-                }
+                };
                 #[cfg(any(target_os = "ios"))]
-                let conns: Vec<i32> = Vec::new();
+                let conns_opt: Option<Vec<i32>> = None;
 
-                let payload = json!({
-                    "id": client_id.clone(),
-                    "client_id": client_id,
-                    "hostname": hostname,
-                    "username": username,
-                    "alias": alias,
-                    "os": os,
-                    "ip": if ip.is_empty() { None::<String> } else { Some(ip) },
-                    "version": crate::VERSION,
-                    "client_version": crate::VERSION,
-                    "timestamp": now_s,
-                    "ts": now_s,
-                    "timestamp_ms": now_ms,
-                    "conns": conns,
-                });
+                let mut payload = serde_json::Map::new();
+                payload.insert("id".to_string(), json!(client_id.clone()));
+                payload.insert("client_id".to_string(), json!(client_id));
+                payload.insert("hostname".to_string(), json!(hostname));
+                payload.insert("username".to_string(), json!(username));
+                payload.insert("alias".to_string(), json!(alias));
+                payload.insert("os".to_string(), json!(os));
+                payload.insert(
+                    "ip".to_string(),
+                    if ip.is_empty() { json!(None::<String>) } else { json!(ip) },
+                );
+                payload.insert("version".to_string(), json!(crate::VERSION));
+                payload.insert("client_version".to_string(), json!(crate::VERSION));
+                payload.insert("timestamp".to_string(), json!(now_s));
+                payload.insert("ts".to_string(), json!(now_s));
+                payload.insert("timestamp_ms".to_string(), json!(now_ms));
+                if let Some(conns) = conns_opt {
+                    payload.insert("conns".to_string(), json!(conns));
+                }
+                let payload = Value::Object(payload);
 
                 let mut sent = false;
                 for attempt in 1..=HEARTBEAT_MAX_ATTEMPTS {
