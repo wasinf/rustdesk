@@ -132,6 +132,7 @@ pub fn core_main() -> Option<Vec<String>> {
     let mut _is_run_as_system = false;
     let mut _is_quick_support = false;
     let mut _is_flutter_invoke_new_connection = false;
+    let mut _from_uri_link = false;
     let mut no_server = false;
     let mut arg_exe = Default::default();
     for arg in std::env::args() {
@@ -153,6 +154,7 @@ pub fn core_main() -> Option<Vec<String>> {
                 _is_flutter_invoke_new_connection = true;
             }
             if let Some(uri_args) = uri_link_to_cmd_args(&arg) {
+                _from_uri_link = true;
                 for parsed in uri_args {
                     #[cfg(feature = "flutter")]
                     if [
@@ -220,7 +222,7 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     #[cfg(feature = "flutter")]
     if _is_flutter_invoke_new_connection {
-        return core_main_invoke_new_connection(args.clone());
+        return core_main_invoke_new_connection(args.clone(), _from_uri_link);
     }
     let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
     if click_setup && !config::is_disable_installation() {
@@ -866,7 +868,7 @@ fn import_config(path: &str) {
 /// If it returns [`None`], then the process will terminate, and flutter gui will not be started.
 /// If it returns [`Some`], then the process will continue, and flutter gui will be started.
 #[cfg(feature = "flutter")]
-fn core_main_invoke_new_connection(args: Vec<String>) -> Option<Vec<String>> {
+fn core_main_invoke_new_connection(args: Vec<String>, from_uri_link: bool) -> Option<Vec<String>> {
     let mut authority = None;
     let mut id = None;
     let mut param_array = vec![];
@@ -929,6 +931,10 @@ fn core_main_invoke_new_connection(args: Vec<String>) -> Option<Vec<String>> {
 
     #[cfg(windows)]
     {
+        if from_uri_link {
+            let fallback_args = uri_link_to_cmd_args(&uni_links).unwrap_or_else(|| vec![uni_links]);
+            return Some(fallback_args);
+        }
         use winapi::um::winuser::WM_USER;
         let res = crate::platform::send_message_to_hnwd(
             &crate::platform::FLUTTER_RUNNER_WIN32_WINDOW_CLASS,
