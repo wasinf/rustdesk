@@ -33,6 +33,20 @@ static bool has_known_uri_prefix(const std::string& arg) {
   return false;
 }
 
+static bool has_connect_param(const std::string& arg) {
+  std::string value = arg;
+  std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+  const std::vector<std::string> params = {
+      "--connect", "--play", "--file-transfer", "--view-camera",
+      "--port-forward", "--terminal", "--terminal-admin", "--rdp"};
+  for (const auto& param : params) {
+    if (value == param) {
+      return true;
+    }
+  }
+  return false;
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command)
 {
@@ -102,6 +116,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     if (!allow_multiple_instances) {
       for (const auto& arg : command_line_arguments) {
         if (has_known_uri_prefix(arg)) {
+          allow_multiple_instances = true;
+          break;
+        }
+      }
+    }
+    if (!allow_multiple_instances) {
+      for (const auto& arg : command_line_arguments) {
+        if (has_connect_param(arg)) {
           allow_multiple_instances = true;
           break;
         }
