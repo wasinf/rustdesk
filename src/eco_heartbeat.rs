@@ -173,7 +173,11 @@ pub fn start() {
                                         if let Ok(conns) =
                                             serde_json::from_value::<Vec<i32>>(disconnect)
                                         {
-                                            crate::hbbs_http::sync::send_disconnect_signal(conns);
+                                            if crate::common::is_server() {
+                                                crate::hbbs_http::sync::send_disconnect_signal(conns);
+                                            } else {
+                                                let _ = crate::ipc::send_disconnect_conns(conns);
+                                            }
                                         }
                                     }
                                 }

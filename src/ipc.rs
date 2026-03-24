@@ -299,6 +299,8 @@ pub enum Data {
     FileTransferLog((String, String)),
     #[cfg(windows)]
     ControlledSessionCount(usize),
+    /// Request server process to close specific connection IDs.
+    DisconnectConns(Vec<i32>),
     /// Request/response: list of alive connection IDs from the server process.
     AliveConns(Option<Vec<i32>>),
     CmErr(String),
@@ -760,6 +762,9 @@ async fn handle(data: Data, stream: &mut Connection) {
                     .await
             );
         }
+        Data::DisconnectConns(conns) => {
+            crate::hbbs_http::sync::send_disconnect_signal(conns);
+        }
         Data::AliveConns(None) => {
             let conns = crate::Connection::alive_conns();
             allow_err!(stream.send(&Data::AliveConns(Some(conns))).await);
@@ -1124,6 +1129,11 @@ async fn get_alive_conns_async(ms_timeout: u64) -> ResultType<Vec<i32>> {
         return Ok(conns);
     }
     Ok(Vec::new())
+}
+
+#[tokio::main(flavor = "current_thread")]
+pub async fn send_disconnect_conns(conns: Vec<i32>) -> ResultType<()> {
+    set_data_async(&Data::DisconnectConns(conns)).await
 }
 
 async fn get_config_async(name: &str, ms_timeout: u64) -> ResultType<Option<String>> {
