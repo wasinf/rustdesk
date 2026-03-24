@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 
 #include "win32_desktop.h"
@@ -21,7 +22,8 @@ const wchar_t* getWindowClassName();
 
 static bool has_known_uri_prefix(const std::string& arg) {
   std::string value = arg;
-  std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   const std::vector<std::string> prefixes = {
       "eco-remote://", "eco-remoto://", "ecoremoto://", "rustdesk://",
       "eco-remote:", "eco-remoto:", "ecoremoto:", "rustdesk:"};
@@ -35,7 +37,8 @@ static bool has_known_uri_prefix(const std::string& arg) {
 
 static bool has_connect_param(const std::string& arg) {
   std::string value = arg;
-  std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   const std::vector<std::string> params = {
       "--connect", "--play", "--file-transfer", "--view-camera",
       "--port-forward", "--terminal", "--terminal-admin", "--rdp"};
