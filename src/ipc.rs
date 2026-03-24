@@ -299,6 +299,8 @@ pub enum Data {
     FileTransferLog((String, String)),
     #[cfg(windows)]
     ControlledSessionCount(usize),
+    /// Request/response: list of alive connection IDs from the server process.
+    AliveConns(Option<Vec<i32>>),
     CmErr(String),
     // CM-side file reading responses (Windows only)
     // These are sent from CM back to Connection when CM handles file reading
@@ -758,6 +760,10 @@ async fn handle(data: Data, stream: &mut Connection) {
                     .await
             );
         }
+        Data::AliveConns(None) => {
+            let conns = crate::Connection::alive_conns();
+            allow_err!(stream.send(&Data::AliveConns(Some(conns))).await);
+        }
         #[cfg(all(
             feature = "flutter",
             not(any(target_os = "android", target_os = "ios"))
@@ -1104,6 +1110,20 @@ where
 #[tokio::main(flavor = "current_thread")]
 pub async fn get_config(name: &str) -> ResultType<Option<String>> {
     get_config_async(name, 1_000).await
+}
+
+#[tokio::main(flavor = "current_thread")]
+pub async fn get_alive_conns() -> ResultType<Vec<i32>> {
+    get_alive_conns_async(1_000).await
+}
+
+async fn get_alive_conns_async(ms_timeout: u64) -> ResultType<Vec<i32>> {
+    let mut c = connect(ms_timeout, "").await?;
+    c.send(&Data::AliveConns(None)).await?;
+    if let Some(Data::AliveConns(Some(conns))) = c.next_timeout(ms_timeout).await? {
+        return Ok(conns);
+    }
+    Ok(Vec::new())
 }
 
 async fn get_config_async(name: &str, ms_timeout: u64) -> ResultType<Option<String>> {

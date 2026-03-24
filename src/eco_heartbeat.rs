@@ -98,7 +98,13 @@ pub fn start() {
                 let now_s = now_ms / 1000;
 
                 #[cfg(not(any(target_os = "ios")))]
-                let conns = Connection::alive_conns();
+                let mut conns = Connection::alive_conns();
+                #[cfg(not(any(target_os = "ios")))]
+                if conns.is_empty() && !crate::common::is_server() {
+                    if let Ok(list) = crate::ipc::get_alive_conns() {
+                        conns = list;
+                    }
+                }
                 #[cfg(any(target_os = "ios"))]
                 let conns: Vec<i32> = Vec::new();
 
