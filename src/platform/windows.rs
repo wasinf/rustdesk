@@ -2616,12 +2616,20 @@ pub fn send_message_to_hnwd(
         println!("send {:?}", data_zero);
         data_struct.cbData = data_zero.len() as _;
         data_struct.lpData = data_zero.as_mut_ptr() as _;
-        SendMessageW(
+        let result = SendMessageW(
             window,
             WM_COPYDATA,
             0,
             &data_struct as *const COPYDATASTRUCT as _,
         );
+        if result == 0 {
+            log::warn!(
+                "send message to window {}:{} returned 0 (ignored or blocked)",
+                class_name,
+                window_name
+            );
+            return false;
+        }
         if show_window {
             ShowWindow(window, SW_NORMAL);
             SetForegroundWindow(window);
