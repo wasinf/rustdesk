@@ -35,6 +35,14 @@ pub fn signal_receiver() -> broadcast::Receiver<Vec<i32>> {
 }
 
 #[cfg(not(any(target_os = "ios")))]
+pub fn send_disconnect_signal(conns: Vec<i32>) {
+    if conns.is_empty() {
+        return;
+    }
+    SENDER.lock().unwrap().send(conns).ok();
+}
+
+#[cfg(not(any(target_os = "ios")))]
 fn start_hbbs_sync() -> broadcast::Sender<Vec<i32>> {
     let (tx, _rx) = broadcast::channel::<Vec<i32>>(16);
     std::thread::spawn(move || start_hbbs_sync_async());

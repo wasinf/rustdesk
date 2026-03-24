@@ -1,12 +1,15 @@
 use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::Once;
+use std::collections::HashMap;
 
 use hbb_common::config::Config;
 use hbb_common::log::{self, warn};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::hbbs_http::create_http_client_with_url;
+#[cfg(not(any(target_os = "ios")))]
+use crate::Connection;
 
 const DEFAULT_ECO_PANEL_URL: &str = "https://painelaremoto.portalecomdo.com.br/api/heartbeat";
 const DEFAULT_ECO_PANEL_API_KEY: &str = "2c034d3a8afc44481492d155afc167dd2962f6cd6e5c0bac24bae8d8df035e25";
@@ -94,6 +97,11 @@ pub fn start() {
                 let now_ms = hbb_common::get_time();
                 let now_s = now_ms / 1000;
 
+                #[cfg(not(any(target_os = "ios")))]
+                let conns = Connection::alive_conns();
+                #[cfg(any(target_os = "ios"))]
+                let conns: Vec<i32> = Vec::new();
+
                 let payload = json!({
                     "id": client_id.clone(),
                     "client_id": client_id,
@@ -107,6 +115,7 @@ pub fn start() {
                     "timestamp": now_s,
                     "ts": now_s,
                     "timestamp_ms": now_ms,
+                    "conns": conns,
                 });
 
                 let mut sent = false;
@@ -131,6 +140,19 @@ pub fn start() {
                                     consecutive_failures
                                 );
                                 consecutive_failures = 0;
+                            }
+                            if let Ok(body) = resp.text() {
+                                if let Ok(mut rsp) =
+                                    serde_json::from_str::<HashMap<String, Value>>(&body)
+                                {
+                                    if let Some(disconnect) = rsp.remove("disconnect") {
+                                        if let Ok(conns) =
+                                            serde_json::from_value::<Vec<i32>>(disconnect)
+                                        {
+                                            crate::hbbs_http::sync::send_disconnect_signal(conns);
+                                        }
+                                    }
+                                }
                             }
                             break;
                         }
