@@ -19,6 +19,20 @@ const std::vector<std::string> parameters_white_list = {"--install", "--cm"};
 
 const wchar_t* getWindowClassName();
 
+static bool has_known_uri_prefix(const std::string& arg) {
+  std::string value = arg;
+  std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+  const std::vector<std::string> prefixes = {
+      "eco-remote://", "eco-remoto://", "ecoremoto://", "rustdesk://",
+      "eco-remote:", "eco-remoto:", "ecoremoto:", "rustdesk:"};
+  for (const auto& prefix : prefixes) {
+    if (value.rfind(prefix, 0) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command)
 {
@@ -84,6 +98,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
           std::find(command_line_arguments.begin(),
                     command_line_arguments.end(),
                     whitelist_param) != command_line_arguments.end();
+    }
+    if (!allow_multiple_instances) {
+      for (const auto& arg : command_line_arguments) {
+        if (has_known_uri_prefix(arg)) {
+          allow_multiple_instances = true;
+          break;
+        }
+      }
     }
     if (!allow_multiple_instances) {
       if (!command_line_arguments.empty()) {
